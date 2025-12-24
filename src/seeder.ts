@@ -2,12 +2,12 @@
 // Seeder script to populate the database with random dummy data
 // Run with: npm run seed
 
-// First, we need to import and manipulate the controllers' in-memory storage
-// Since the storage is internal, we'll create a separate in-memory storage and log it
-// Then the user can manually add this data or we can create an API endpoint
-
 import { Patient } from "./types/patient";
 import { Appointment } from "./types/appointment";
+import { Staff } from "./types/staff";
+import { InventoryItem } from "./types/inventory";
+import { FinanceRecord } from "./types/finance";
+
 
 // Sample data for seeding
 const firstNames = [
@@ -64,6 +64,116 @@ const statuses = ["active", "inactive", "overdue"];
 
 const insurances = ["Blue Cross", "Aetna", "Delta Dental", "Cigna", "United Healthcare", "None"];
 
+const staffRoles = ["Lead Dentist", "Associate Dentist", "Pediatric Dentist", "Dental Hygienist", "Dental Assistant", "Office Manager", "Receptionist"];
+const departments = ["Dentistry", "Hygiene", "Assistance", "Administration"];
+const employmentTypes = ["Full-time", "Part-time", "Contract"];
+const specializations = ["General Dentistry", "Orthodontics", "Pediatric Dentistry", "Dental Hygiene", "Chair-side Assistance", "Office Management", "Patient Relations"];
+
+const inventoryItemsData: Omit<InventoryItem, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] = [
+  { item: "Dental Anesthetic (Lidocaine)", quantity: 45, unit: "vials", costPerUnit: 12.50, totalValue: 562.50, supplier: "DentMed Supply", lastOrdered: "2024-01-15" },
+  { item: "Composite Filling Material", quantity: 12, unit: "tubes", costPerUnit: 85.00, totalValue: 1020.00, supplier: "3M Dental", lastOrdered: "2024-01-10" },
+  { item: "Disposable Gloves (Nitrile)", quantity: 8, unit: "boxes", costPerUnit: 24.99, totalValue: 199.92, supplier: "MedStock", lastOrdered: "2024-01-18" },
+  { item: "Dental Impression Material", quantity: 20, unit: "cartridges", costPerUnit: 35.00, totalValue: 700.00, supplier: "Dentsply", lastOrdered: "2024-01-12" },
+  { item: "X-Ray Film", quantity: 15, unit: "packs", costPerUnit: 45.00, totalValue: 675.00, supplier: "Kodak Dental", lastOrdered: "2024-01-08" },
+  { item: "Sterilization Pouches", quantity: 50, unit: "boxes", costPerUnit: 18.00, totalValue: 900.00, supplier: "SterileMax", lastOrdered: "2024-01-20" },
+  { item: "Prophy Paste", quantity: 30, unit: "cups", costPerUnit: 0.75, totalValue: 22.50, supplier: "Hu-Friedy", lastOrdered: "2024-01-22" },
+  { item: "Scaler Tips", quantity: 5, unit: "pieces", costPerUnit: 120.00, totalValue: 600.00, supplier: "EMS Dental", lastOrdered: "2024-01-25" },
+];
+
+const staffMembersData: Omit<Staff, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] = [
+  {
+    name: "Dr. Sarah Johnson",
+    role: "Lead Dentist",
+    department: "Dentistry",
+    email: "sarah.johnson@smilecare.com",
+    phone: "+1 (555) 123-4567",
+    hireDate: "2019-03-15",
+    baseSalary: 12000,
+    status: "active",
+    employmentType: "Full-time",
+    specialization: "General Dentistry",
+    licenseNumber: "DDS-12345"
+  },
+  {
+    name: "Dr. Michael Chen",
+    role: "Associate Dentist",
+    department: "Dentistry",
+    email: "michael.chen@smilecare.com",
+    phone: "+1 (555) 234-5678",
+    hireDate: "2020-06-01",
+    baseSalary: 9000,
+    status: "active",
+    employmentType: "Full-time",
+    specialization: "Orthodontics",
+    licenseNumber: "DDS-23456"
+  },
+  {
+    name: "Dr. Emily Rodriguez",
+    role: "Pediatric Dentist",
+    department: "Dentistry",
+    email: "emily.rodriguez@smilecare.com",
+    phone: "+1 (555) 345-6789",
+    hireDate: "2021-01-10",
+    baseSalary: 8500,
+    status: "active",
+    employmentType: "Full-time",
+    specialization: "Pediatric Dentistry",
+    licenseNumber: "DDS-34567"
+  },
+  {
+    name: "Jessica Williams",
+    role: "Dental Hygienist",
+    department: "Hygiene",
+    email: "jessica.williams@smilecare.com",
+    phone: "+1 (555) 456-7890",
+    hireDate: "2020-09-20",
+    baseSalary: 4500,
+    status: "active",
+    employmentType: "Full-time",
+    specialization: "Dental Hygiene",
+    licenseNumber: "RDH-45678"
+  },
+  {
+    name: "Mark Thompson",
+    role: "Dental Assistant",
+    department: "Assistance",
+    email: "mark.thompson@smilecare.com",
+    phone: "+1 (555) 567-8901",
+    hireDate: "2022-02-14",
+    baseSalary: 3200,
+    status: "active",
+    employmentType: "Full-time",
+    specialization: "Chair-side Assistance",
+    licenseNumber: "DA-56789"
+  },
+  {
+    name: "Lisa Martinez",
+    role: "Office Manager",
+    department: "Administration",
+    email: "lisa.martinez@smilecare.com",
+    phone: "+1 (555) 678-9012",
+    hireDate: "2018-11-05",
+    baseSalary: 4000,
+    status: "active",
+    employmentType: "Full-time",
+    specialization: "Office Management",
+    licenseNumber: "N/A"
+  },
+  {
+    name: "Robert Davis",
+    role: "Receptionist",
+    department: "Administration",
+    email: "robert.davis@smilecare.com",
+    phone: "+1 (555) 789-0123",
+    hireDate: "2023-04-18",
+    baseSalary: 2800,
+    status: "active",
+    employmentType: "Part-time",
+    specialization: "Patient Relations",
+    licenseNumber: "N/A"
+  }
+];
+
 function getRandomElement<T>(array: T[]): T {
   return array[Math.floor(Math.random() * array.length)];
 }
@@ -76,8 +186,8 @@ function getRandomDate(startDate: Date, endDate: Date): Date {
   return new Date(startDate.getTime() + Math.random() * (endDate.getTime() - startDate.getTime()));
 }
 
-function generatePatients(count: number = 25): Patient[] {
-  const generatedPatients: Patient[] = [];
+function generatePatients(count: number = 25): Omit<Patient, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] {
+  const generatedPatients: Omit<Patient, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] = [];
   const now = new Date();
   const twoYearsAgo = new Date(now.getFullYear() - 2, now.getMonth(), now.getDate());
 
@@ -88,8 +198,7 @@ function generatePatients(count: number = 25): Patient[] {
     const phone = `(${getRandomInt(200, 999)}) ${getRandomInt(200, 999)}-${getRandomInt(1000, 9999)}`;
     const dateOfBirth = new Date(getRandomInt(1960, 2005), getRandomInt(0, 11), getRandomInt(1, 28));
 
-    const patient: Patient = {
-      id: `patient_${Date.now() + i}`,
+    const patient: Omit<Patient, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt"> = {
       firstName,
       lastName,
       email,
@@ -105,9 +214,6 @@ function generatePatients(count: number = 25): Patient[] {
       allergies: Math.random() > 0.7 ? getRandomElement(["Penicillin", "Latex", "Iodine", "None"]) : "None",
       medicalHistory: getRandomElement(["Diabetes", "Hypertension", "Asthma", "None"]),
       notes: getRandomElement(["VIP patient", "Referred by friend", "Online inquiry", ""]),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      deleted: false,
     };
 
     generatedPatients.push(patient);
@@ -116,8 +222,8 @@ function generatePatients(count: number = 25): Patient[] {
   return generatedPatients;
 }
 
-function generateAppointments(patientsList: Patient[], count: number = 60): Appointment[] {
-  const generatedAppointments: Appointment[] = [];
+function generateAppointments(patientsList: Patient[], count: number = 60): Omit<Appointment, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] {
+  const generatedAppointments: Omit<Appointment, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] = [];
   const now = new Date();
   const sixMonthsLater = new Date(now.getFullYear(), now.getMonth() + 6, now.getDate());
 
@@ -127,8 +233,7 @@ function generateAppointments(patientsList: Patient[], count: number = 60): Appo
     const hour = getRandomInt(8, 17);
     const minute = getRandomElement([0, 15, 30, 45]);
 
-    const appointment: Appointment = {
-      id: `appointment_${Date.now() + i}`,
+    const appointment: Omit<Appointment, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt"> = {
       patientId: patient.id || "",
       patientName: `${patient.firstName} ${patient.lastName}`,
       date: appointmentDate.toISOString().split("T")[0],
@@ -143,9 +248,6 @@ function generateAppointments(patientsList: Patient[], count: number = 60): Appo
         "Emergency appointment",
         "Crown placement",
       ]),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      deleted: false,
     };
 
     generatedAppointments.push(appointment);
@@ -154,8 +256,8 @@ function generateAppointments(patientsList: Patient[], count: number = 60): Appo
   return generatedAppointments;
 }
 
-function generateFinanceRecords(patientsList: Patient[], count: number = 80) {
-  const records: any[] = [];
+function generateFinanceRecords(patientsList: Patient[], count: number = 80): Omit<FinanceRecord, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] {
+  const records: Omit<FinanceRecord, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] = [];
   const now = new Date();
   const twoYearsAgo = new Date(now.getFullYear() - 2, now.getMonth(), now.getDate());
 
@@ -164,16 +266,12 @@ function generateFinanceRecords(patientsList: Patient[], count: number = 80) {
     const date = getRandomDate(twoYearsAgo, now);
     const isPayment = Math.random() > 0.4; // ~60% charges, 40% payments
     const amount = parseFloat((Math.random() * (isPayment ? 200 : 800) + 20).toFixed(2));
-    const record = {
-      id: `finance_${Date.now()}_${i}`,
+    const record: Omit<FinanceRecord, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt"> = {
       patientId: patient.id || "",
       type: isPayment ? "payment" : "charge",
       amount: amount,
       date: date.toISOString().split("T")[0],
       description: isPayment ? "Payment received" : getRandomElement(["Procedure charge", "Treatment fee", "Supply charge"]),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      deleted: false,
     };
 
     records.push(record);
@@ -187,59 +285,70 @@ async function seedDatabase() {
     console.log("\n🌱 Generating seeder data...\n");
 
     // Generate patients
-    const generatedPatients = generatePatients(25);
-    console.log(`✅ Generated ${generatedPatients.length} patients\n`);
+    const generatedPatientsData = generatePatients(25);
+    console.log(`✅ Generated ${generatedPatientsData.length} patients data\n`);
 
-    // Generate appointments
-    const generatedAppointments = generateAppointments(generatedPatients, 60);
-    console.log(`✅ Generated ${generatedAppointments.length} appointments\n`);
-
-    // Now add patients via API
+    // --- Seed Patients ---
+    const createdPatients: Patient[] = [];
     console.log("📤 Adding patients to database via API...");
-    for (const patient of generatedPatients) {
+    for (const patientData of generatedPatientsData) {
       try {
         const response = await fetch("http://localhost:3001/api/patients", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify(patient),
+          body: JSON.stringify(patientData),
         });
 
         if (!response.ok) {
-          console.error(`❌ Failed to add patient ${patient.firstName} ${patient.lastName}`);
+          console.error(`❌ Failed to add patient ${patientData.firstName} ${patientData.lastName}`);
+        } else {
+          const apiResponse = await response.json();
+          if (apiResponse.success && apiResponse.data) {
+            createdPatients.push(apiResponse.data);
+          } else {
+            console.error(`❌ API failed to return patient data for ${patientData.firstName} ${patientData.lastName}`);
+          }
         }
       } catch (err) {
         console.error(`❌ Error adding patient: ${err}`);
       }
     }
-    console.log("✅ All patients added\n");
+    console.log(`✅ All patients added. Total: ${createdPatients.length}\n`);
 
-    // Add appointments via API
+    // Generate appointments
+    const generatedAppointmentsData = generateAppointments(createdPatients, 60);
+    console.log(`✅ Generated ${generatedAppointmentsData.length} appointments data\n`);
+
+    // --- Seed Appointments ---
     console.log("📤 Adding appointments to database via API...");
-    for (const appointment of generatedAppointments) {
+    for (const appointmentData of generatedAppointmentsData) {
       try {
         const response = await fetch("http://localhost:3001/api/appointments", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify(appointment),
+          body: JSON.stringify(appointmentData),
         });
 
         if (!response.ok) {
-          console.error(`❌ Failed to add appointment for ${appointment.patientName}`);
+          console.error(`❌ Failed to add appointment for patientId ${appointmentData.patientId}`);
         }
       } catch (err) {
         console.error(`❌ Error adding appointment: ${err}`);
       }
     }
-    console.log("✅ All appointments added\n");
+    console.log(`✅ All appointments added. Total: ${generatedAppointmentsData.length}\n`);
 
-    // Generate finance records and POST to backend
-    console.log("📤 Generating and adding finance records via API...");
-    const generatedFinance = generateFinanceRecords(generatedPatients, 80);
-    for (const record of generatedFinance) {
+    // Generate finance records
+    const generatedFinanceRecords = generateFinanceRecords(createdPatients, 80);
+    console.log(`✅ Generated ${generatedFinanceRecords.length} finance records data\n`);
+
+    // --- Seed Finance Records ---
+    console.log("📤 Adding finance records to database via API...");
+    for (const record of generatedFinanceRecords) {
       try {
         const response = await fetch("http://localhost:3001/api/finance", {
           method: "POST",
@@ -250,17 +359,62 @@ async function seedDatabase() {
         });
 
         if (!response.ok) {
-          console.error(`❌ Failed to add finance record for ${record.patientId}`);
+          console.error(`❌ Failed to add finance record for patientId ${record.patientId}`);
         }
       } catch (err) {
         console.error(`❌ Error adding finance record: ${err}`);
       }
     }
-    console.log(`✅ All finance records added (${generatedFinance.length})\n`);
+    console.log(`✅ All finance records added. Total: ${generatedFinanceRecords.length}\n`);
+
+    // --- Seed Inventory Items ---
+    console.log("📤 Adding inventory items to database via API...");
+    for (const itemData of inventoryItemsData) {
+      try {
+        const response = await fetch("http://localhost:3001/api/inventory", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(itemData),
+        });
+
+        if (!response.ok) {
+          console.error(`❌ Failed to add inventory item: ${itemData.item}`);
+        }
+      } catch (err) {
+        console.error(`❌ Error adding inventory item: ${err}`);
+      }
+    }
+    console.log(`✅ All inventory items added. Total: ${inventoryItemsData.length}\n`);
+
+    // --- Seed Staff Members ---
+    console.log("📤 Adding staff members to database via API...");
+    for (const staffData of staffMembersData) {
+      try {
+        const response = await fetch("http://localhost:3001/api/staff", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(staffData),
+        });
+
+        if (!response.ok) {
+          console.error(`❌ Failed to add staff member: ${staffData.name}`);
+        }
+      } catch (err) {
+        console.error(`❌ Error adding staff member: ${err}`);
+      }
+    }
+    console.log(`✅ All staff members added. Total: ${staffMembersData.length}\n`);
 
     console.log("📊 Seeding Summary:");
-    console.log(`   ✅ Total Patients Added: ${generatedPatients.length}`);
-    console.log(`   ✅ Total Appointments Added: ${generatedAppointments.length}`);
+    console.log(`   ✅ Total Patients Added: ${createdPatients.length}`);
+    console.log(`   ✅ Total Appointments Added: ${generatedAppointmentsData.length}`);
+    console.log(`   ✅ Total Finance Records Added: ${generatedFinanceRecords.length}`);
+    console.log(`   ✅ Total Inventory Items Added: ${inventoryItemsData.length}`);
+    console.log(`   ✅ Total Staff Members Added: ${staffMembersData.length}`);
     console.log("\n✨ Database seeding completed successfully!");
     console.log("🎉 You can now refresh your application to see the new data.\n");
 
@@ -301,4 +455,3 @@ async function main() {
 }
 
 main();
-

@@ -3,6 +3,7 @@ import { Appointment, ApiResponse } from "../types/appointment";
 
 // Temporary in-memory storage (replace with database later)
 const appointments: Appointment[] = [];
+let appointmentIdCounter = 0;
 
 export const addAppointment = (req: Request, res: Response<ApiResponse<Appointment>>) => {
   try {
@@ -22,7 +23,7 @@ export const addAppointment = (req: Request, res: Response<ApiResponse<Appointme
 
     // Create appointment object with ID and timestamps
     const newAppointment: Appointment = {
-      id: `apt_${Date.now()}`,
+      id: `apt_${Date.now()}_${appointmentIdCounter++}`,
       patientId: appointmentData.patientId,
       patientName: appointmentData.patientName,
       date: appointmentData.date,

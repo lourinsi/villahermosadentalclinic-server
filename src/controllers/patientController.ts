@@ -3,6 +3,7 @@ import { Patient, ApiResponse } from "../types/patient";
 
 // Temporary in-memory storage (replace with database later)
 const patients: Patient[] = [];
+let patientIdCounter = 0;
 
 export const addPatient = (req: Request, res: Response<ApiResponse<Patient>>) => {
   try {
@@ -22,7 +23,7 @@ export const addPatient = (req: Request, res: Response<ApiResponse<Patient>>) =>
 
     // Create patient object with ID and timestamps
     const newPatient: Patient = {
-      id: `patient_${Date.now()}`,
+      id: `patient_${Date.now()}_${patientIdCounter++}`,
       firstName: patientData.firstName || "",
       lastName: patientData.lastName || "",
       email: patientData.email || "",

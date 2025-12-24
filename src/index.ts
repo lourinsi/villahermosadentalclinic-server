@@ -4,6 +4,8 @@ import dotenv from "dotenv";
 import patientRoutes from "./routes/patientRoutes";
 import appointmentRoutes from "./routes/appointmentRoutes";
 import financeRoutes from "./routes/financeRoutes";
+import staffRoutes from "./routes/staffRoutes";
+import inventoryRoutes from "./routes/inventoryRoutes";
 
 // Load environment variables
 dotenv.config();
@@ -27,6 +29,8 @@ app.use(express.urlencoded({ extended: true }));
 app.use("/api/patients", patientRoutes);
 app.use("/api/appointments", appointmentRoutes);
 app.use("/api/finance", financeRoutes);
+app.use("/api/staff", staffRoutes);
+app.use("/api/inventory", inventoryRoutes);
 
 // Health check endpoint
 app.get("/api/health", (req: express.Request, res: express.Response) => {
