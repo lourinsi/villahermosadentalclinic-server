@@ -227,10 +227,10 @@ export const createStaffFinancialRecord = (
     }
 
     const newRecord: StaffFinancialRecord = {
+      ...recordData,
       id: `staff_fin_${Date.now()}_${staffFinancialRecordIdCounter++}`,
       staffName: staffMember.name,
       status: 'pending',
-      ...recordData,
     };
 
     staffFinancialRecords.push(newRecord);

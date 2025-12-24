@@ -79,10 +79,10 @@ export const createDetailedExpense = (
     }
 
     const newExpense: DetailedExpense = {
+      ...expenseData,
       id: `exp_${Date.now()}_${detailedExpenseIdCounter++}`,
       status: 'pending',
       recurring: false, // default value
-      ...expenseData,
     };
 
     detailedExpenses.push(newExpense);
