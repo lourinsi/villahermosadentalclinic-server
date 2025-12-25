@@ -275,6 +275,140 @@ export const getStaffFinancialRecords = (
   }
 };
 
+export const updateStaffFinancialRecord = (
+  req: Request,
+  res: Response<ApiResponse<StaffFinancialRecord>>
+) => {
+  try {
+    const { id } = req.params;
+    const updates: Partial<StaffFinancialRecord> = req.body;
+
+    const recordIndex = staffFinancialRecords.findIndex((rec) => rec.id === id);
+    if (recordIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        message: "Staff financial record not found",
+      });
+    }
+
+    let staffInfoUpdate: Partial<StaffFinancialRecord> = {};
+    if (
+      updates.staffId &&
+      updates.staffId !== staffFinancialRecords[recordIndex].staffId
+    ) {
+      const staffMember = staffMembers.find((s) => s.id === updates.staffId);
+      if (!staffMember) {
+        return res.status(404).json({
+          success: false,
+          message: "Staff member not found",
+        });
+      }
+      staffInfoUpdate = {
+        staffId: staffMember.id,
+        staffName: staffMember.name,
+      };
+    }
+
+    const updatedRecord: StaffFinancialRecord = {
+      ...staffFinancialRecords[recordIndex],
+      ...updates,
+      ...staffInfoUpdate,
+      id: staffFinancialRecords[recordIndex].id,
+    };
+
+    staffFinancialRecords[recordIndex] = updatedRecord;
+
+    res.json({
+      success: true,
+      message: "Staff financial record updated successfully",
+      data: updatedRecord,
+    });
+  } catch (error) {
+    console.error("[STAFF UPDATE_FINANCIAL_RECORD] ERROR:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error updating staff financial record",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
+
+export const approveStaffFinancialRecord = (
+  req: Request,
+  res: Response<ApiResponse<StaffFinancialRecord>>
+) => {
+  try {
+    const { id } = req.params;
+    const recordIndex = staffFinancialRecords.findIndex((rec) => rec.id === id);
+
+    if (recordIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        message: "Staff financial record not found",
+      });
+    }
+
+    const currentRecord = staffFinancialRecords[recordIndex];
+    if (currentRecord.status === "paid") {
+      return res.status(400).json({
+        success: false,
+        message: "Paid records cannot be re-approved",
+      });
+    }
+
+    const updatedRecord: StaffFinancialRecord = {
+      ...currentRecord,
+      status: "approved",
+    };
+
+    staffFinancialRecords[recordIndex] = updatedRecord;
+
+    res.json({
+      success: true,
+      message: "Staff financial record approved successfully",
+      data: updatedRecord,
+    });
+  } catch (error) {
+    console.error("[STAFF APPROVE_FINANCIAL_RECORD] ERROR:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error approving staff financial record",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
+
+export const deleteStaffFinancialRecord = (
+  req: Request,
+  res: Response<ApiResponse<null>>
+) => {
+  try {
+    const { id } = req.params;
+    const recordIndex = staffFinancialRecords.findIndex((rec) => rec.id === id);
+
+    if (recordIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        message: "Staff financial record not found",
+      });
+    }
+
+    staffFinancialRecords.splice(recordIndex, 1);
+
+    res.json({
+      success: true,
+      message: "Staff financial record deleted successfully",
+    });
+  } catch (error) {
+    console.error("[STAFF DELETE_FINANCIAL_RECORD] ERROR:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error deleting staff financial record",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
+
 export const getStaffAttendance = (
   req: Request,
   res: Response<ApiResponse<Attendance[]>>

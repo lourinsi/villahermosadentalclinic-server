@@ -56,7 +56,6 @@ const lastNames = [
   "Martin",
 ];
 
-const doctors = ["Dr. Johnson", "Dr. Chen", "Dr. Rodriguez", "Dr. Williams", "Dr. Lee"];
 
 const appointmentTypes = ["Cleaning", "Checkup", "Filling", "Root Canal", "Extraction", "Whitening"];
 
@@ -174,6 +173,11 @@ const staffMembersData: Omit<Staff, "id" | "createdAt" | "updatedAt" | "deleted"
   }
 ];
 
+const dentistStaffMembers = staffMembersData.filter(
+  (staff) => staff.role?.toLowerCase().includes("dentist")
+);
+const doctorNames = dentistStaffMembers.map((staff) => staff.name);
+
 function getRandomElement<T>(array: T[]): T {
   return array[Math.floor(Math.random() * array.length)];
 }
@@ -222,7 +226,7 @@ function generatePatients(count: number = 25): Omit<Patient, "id" | "createdAt" 
   return generatedPatients;
 }
 
-function generateAppointments(patientsList: Patient[], count: number = 60): Omit<Appointment, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] {
+function generateAppointments(patientsList: Patient[], doctorsList: string[], count: number = 60): Omit<Appointment, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] {
   const generatedAppointments: Omit<Appointment, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] = [];
   const now = new Date();
   const sixMonthsLater = new Date(now.getFullYear(), now.getMonth() + 6, now.getDate());
@@ -239,7 +243,7 @@ function generateAppointments(patientsList: Patient[], count: number = 60): Omit
       date: appointmentDate.toISOString().split("T")[0],
       time: `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`,
       type: getRandomElement(appointmentTypes),
-      doctor: getRandomElement(doctors),
+      doctor: doctorsList.length > 0 ? getRandomElement(doctorsList) : "",
       status: getRandomElement(["pending", "confirmed", "completed"]),
       notes: getRandomElement([
         "Routine cleaning and checkup",
@@ -318,7 +322,7 @@ async function seedDatabase() {
     console.log(`✅ All patients added. Total: ${createdPatients.length}\n`);
 
     // Generate appointments
-    const generatedAppointmentsData = generateAppointments(createdPatients, 60);
+    const generatedAppointmentsData = generateAppointments(createdPatients, doctorNames, 60);
     console.log(`✅ Generated ${generatedAppointmentsData.length} appointments data\n`);
 
     // --- Seed Appointments ---

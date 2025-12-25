@@ -7,6 +7,9 @@ import {
   deleteStaff,
   getStaffFinancialRecords,
   createStaffFinancialRecord,
+  updateStaffFinancialRecord,
+  approveStaffFinancialRecord,
+  deleteStaffFinancialRecord,
   getStaffAttendance,
 } from "../controllers/staffController";
 
@@ -23,6 +26,15 @@ router.get("/financials", getStaffFinancialRecords);
 
 // POST - Add new staff financial record
 router.post("/financials", createStaffFinancialRecord);
+
+// PUT - Approve staff financial record
+router.put("/financials/:id/approve", approveStaffFinancialRecord);
+
+// PUT - Update staff financial record
+router.put("/financials/:id", updateStaffFinancialRecord);
+
+// DELETE - Remove staff financial record
+router.delete("/financials/:id", deleteStaffFinancialRecord);
 
 // GET - Get staff attendance records - MORE SPECIFIC ROUTE FIRST
 router.get("/attendance", getStaffAttendance);
