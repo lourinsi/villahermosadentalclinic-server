@@ -14,13 +14,18 @@ export interface Patient {
   medicalHistory?: string;
   allergies?: string;
   notes?: string;
+  status?: "active" | "overdue" | "inactive" | string;
+  lastVisit?: string;
   createdAt?: Date;
   updatedAt?: Date;
+  deleted?: boolean;
+  deletedAt?: Date;
 }
 
 export interface ApiResponse<T> {
   success: boolean;
   message: string;
+  meta?: any;
   data?: T;
   error?: string;
 }
