@@ -15,6 +15,7 @@ export interface Patient {
   allergies?: string;
   notes?: string;
   status?: "active" | "overdue" | "inactive" | string;
+  lastVisit?: string;
   createdAt?: Date;
   updatedAt?: Date;
   deleted?: boolean;

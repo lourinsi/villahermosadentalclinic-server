@@ -61,12 +61,33 @@ export const getAppointments = (
   res: Response<ApiResponse<Appointment[]>>
 ) => {
   try {
+    const { startDate, endDate, search } = req.query as Record<string, string>;
+    
     // return only non-deleted appointments
-    const active = appointments.filter(a => !a.deleted);
+    let filtered = appointments.filter(a => !a.deleted);
+
+    // If search term is provided, prioritize searching (global search)
+    if (search && search.trim() !== "") {
+      const q = search.trim().toLowerCase();
+      filtered = filtered.filter(a => 
+        a.patientName.toLowerCase().includes(q) ||
+        a.type.toLowerCase().includes(q) ||
+        a.doctor.toLowerCase().includes(q)
+      );
+    } else {
+      // Otherwise filter by date range if provided
+      if (startDate) {
+        filtered = filtered.filter(a => a.date >= startDate);
+      }
+      if (endDate) {
+        filtered = filtered.filter(a => a.date <= endDate);
+      }
+    }
+
     res.json({
       success: true,
       message: "Appointments retrieved successfully",
-      data: active,
+      data: filtered,
     });
   } catch (error) {
     console.error("[APPOINTMENT GET] Error fetching appointments:", error);

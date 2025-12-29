@@ -57,7 +57,7 @@ const lastNames = [
 ];
 
 
-const appointmentTypes = ["Cleaning", "Checkup", "Filling", "Root Canal", "Extraction", "Whitening"];
+const appointmentTypes = ["cleaning", "checkup", "filling", "root Canal", "extraction", "whitening"];
 
 const statuses = ["active", "inactive", "overdue"];
 
@@ -193,7 +193,7 @@ function getRandomDate(startDate: Date, endDate: Date): Date {
 function generatePatients(count: number = 25): Omit<Patient, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] {
   const generatedPatients: Omit<Patient, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] = [];
   const now = new Date();
-  const twoYearsAgo = new Date(now.getFullYear() - 2, now.getMonth(), now.getDate());
+  const oneYearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
 
   for (let i = 0; i < count; i++) {
     const firstName = getRandomElement(firstNames);
@@ -201,6 +201,9 @@ function generatePatients(count: number = 25): Omit<Patient, "id" | "createdAt" 
     const email = `${firstName.toLowerCase()}.${lastName.toLowerCase()}${i}@email.com`;
     const phone = `(${getRandomInt(200, 999)}) ${getRandomInt(200, 999)}-${getRandomInt(1000, 9999)}`;
     const dateOfBirth = new Date(getRandomInt(1960, 2005), getRandomInt(0, 11), getRandomInt(1, 28));
+
+    const hasLastVisit = Math.random() > 0.2;
+    const lastVisitDate = hasLastVisit ? getRandomDate(oneYearAgo, now).toISOString().split("T")[0] : undefined;
 
     const patient: Omit<Patient, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt"> = {
       firstName,
@@ -218,6 +221,7 @@ function generatePatients(count: number = 25): Omit<Patient, "id" | "createdAt" 
       allergies: Math.random() > 0.7 ? getRandomElement(["Penicillin", "Latex", "Iodine", "None"]) : "None",
       medicalHistory: getRandomElement(["Diabetes", "Hypertension", "Asthma", "None"]),
       notes: getRandomElement(["VIP patient", "Referred by friend", "Online inquiry", ""]),
+      lastVisit: lastVisitDate,
     };
 
     generatedPatients.push(patient);
@@ -230,10 +234,31 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
   const generatedAppointments: Omit<Appointment, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] = [];
   const now = new Date();
   const sixMonthsLater = new Date(now.getFullYear(), now.getMonth() + 6, now.getDate());
+  const oneYearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
 
-  for (let i = 0; i < count; i++) {
+  // First, create a completed appointment for each patient's lastVisit if they have one
+  patientsList.forEach(patient => {
+    if (patient.lastVisit) {
+      generatedAppointments.push({
+        patientId: patient.id || "",
+        patientName: `${patient.firstName} ${patient.lastName}`,
+        date: patient.lastVisit,
+        time: `${String(getRandomInt(8, 17)).padStart(2, "0")}:${String(getRandomElement([0, 15, 30, 45])).padStart(2, "0")}`,
+        type: getRandomElement(appointmentTypes),
+        doctor: doctorsList.length > 0 ? getRandomElement(doctorsList) : "",
+        status: "completed",
+        notes: "Routine visit completed.",
+      });
+    }
+  });
+
+  // Then generate some random future/mixed appointments
+  const remainingCount = Math.max(0, count - generatedAppointments.length);
+  for (let i = 0; i < remainingCount; i++) {
     const patient = getRandomElement(patientsList);
-    const appointmentDate = getRandomDate(now, sixMonthsLater);
+    // 20% chance of an additional past appointment
+    const isPast = Math.random() > 0.8;
+    const appointmentDate = isPast ? getRandomDate(oneYearAgo, now) : getRandomDate(now, sixMonthsLater);
     const hour = getRandomInt(8, 17);
     const minute = getRandomElement([0, 15, 30, 45]);
 
@@ -244,7 +269,7 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
       time: `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`,
       type: getRandomElement(appointmentTypes),
       doctor: doctorsList.length > 0 ? getRandomElement(doctorsList) : "",
-      status: getRandomElement(["pending", "confirmed", "completed"]),
+      status: isPast ? "completed" : getRandomElement(["pending", "confirmed", "scheduled"]),
       notes: getRandomElement([
         "Routine cleaning and checkup",
         "Follow-up from previous visit",
