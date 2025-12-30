@@ -30,6 +30,7 @@ export const addAppointment = (req: Request, res: Response<ApiResponse<Appointme
       time: appointmentData.time,
       type: appointmentData.type || "",
       doctor: appointmentData.doctor || "",
+      duration: appointmentData.duration || 60, // default to 60 minutes
       notes: appointmentData.notes || "",
       status: appointmentData.status || "scheduled",
       createdAt: new Date(),

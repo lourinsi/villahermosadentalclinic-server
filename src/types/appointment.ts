@@ -6,6 +6,7 @@ export interface Appointment {
   time: string; // HH:MM
   type: string; // e.g., "Cleaning", "Checkup", "Filling"
   doctor: string;
+  duration?: number; // in minutes
   notes?: string;
   status?: "scheduled" | "confirmed" | "pending" | "tentative" | "completed" | "cancelled";
   createdAt?: Date;
