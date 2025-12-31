@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { Appointment, ApiResponse } from "../types/appointment";
+import { APPOINTMENT_TYPES, getAppointmentTypeName } from "../utils/appointment-types";
 
 // Temporary in-memory storage (replace with database later)
 const appointments: Appointment[] = [];
@@ -11,13 +12,28 @@ export const addAppointment = (req: Request, res: Response<ApiResponse<Appointme
     const appointmentData: Appointment = req.body;
 
     // Basic validation
-    if (!appointmentData.patientId || !appointmentData.patientName || !appointmentData.date || !appointmentData.time) {
+    if (
+      !appointmentData.patientId || 
+      !appointmentData.patientName || 
+      !appointmentData.date || 
+      !appointmentData.time ||
+      appointmentData.type == null || // check for null/undefined
+      appointmentData.type < 0
+    ) {
       console.error("[APPOINTMENT CREATE] Missing required fields");
       return res.status(400).json({
         success: false,
-        message: "Missing required fields: patientId, patientName, date, time",
+        message: "Missing required fields: patientId, patientName, date, time, type",
       });
     }
+
+    if (appointmentData.type === APPOINTMENT_TYPES.length - 1 && !appointmentData.customType) {
+      return res.status(400).json({
+        success: false,
+        message: "Custom type description is required when 'Other' is selected.",
+      });
+    }
+
 
     console.log("[APPOINTMENT CREATE] Creating appointment for patient:", appointmentData.patientName);
 
@@ -28,7 +44,9 @@ export const addAppointment = (req: Request, res: Response<ApiResponse<Appointme
       patientName: appointmentData.patientName,
       date: appointmentData.date,
       time: appointmentData.time,
-      type: appointmentData.type || "",
+      type: appointmentData.type,
+      customType: appointmentData.customType || "",
+      price: appointmentData.price || 0, // Default to 0 if not provided
       doctor: appointmentData.doctor || "",
       duration: appointmentData.duration || 60, // default to 60 minutes
       notes: appointmentData.notes || "",
@@ -72,7 +90,7 @@ export const getAppointments = (
       const q = search.trim().toLowerCase();
       filtered = filtered.filter(a => 
         a.patientName.toLowerCase().includes(q) ||
-        a.type.toLowerCase().includes(q) ||
+        getAppointmentTypeName(a.type, a.customType).toLowerCase().includes(q) ||
         a.doctor.toLowerCase().includes(q)
       );
     } else {

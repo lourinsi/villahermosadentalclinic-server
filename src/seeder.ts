@@ -57,7 +57,15 @@ const lastNames = [
 ];
 
 
-const appointmentTypes = ["cleaning", "checkup", "filling", "root Canal", "extraction", "whitening"];
+const APPOINTMENT_TYPES = [
+  "Routine Cleaning",
+  "Checkup",
+  "Filling",
+  "Root Canal",
+  "Extraction",
+  "Whitening",
+  "Other",
+];
 
 const statuses = ["active", "inactive", "overdue"];
 
@@ -190,6 +198,58 @@ function getRandomDate(startDate: Date, endDate: Date): Date {
   return new Date(startDate.getTime() + Math.random() * (endDate.getTime() - startDate.getTime()));
 }
 
+const toothSections = ["top", "bottom", "left", "right", "center"];
+const toothColors = ["blue", "red"];
+
+function generateRandomToothState(): Record<string, string> {
+    const state: Record<string, string> = { top: "none", bottom: "none", left: "none", right: "none", center: "none" };
+    const sectionsToColor = getRandomInt(1, 3);
+    for (let i = 0; i < sectionsToColor; i++) {
+        const randomSection = getRandomElement(toothSections);
+        state[randomSection] = getRandomElement(toothColors);
+    }
+    return state;
+}
+
+function generateRandomDentalChartData(): string {
+    const chartData: Record<number, Record<string, string>> = {};
+    const adultTeeth = [
+        18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28,
+        48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38
+    ];
+    const teethWithFindings = getRandomInt(3, 8);
+    for (let i = 0; i < teethWithFindings; i++) {
+        const randomTooth = getRandomElement(adultTeeth);
+        if (!chartData[randomTooth]) {
+            chartData[randomTooth] = generateRandomToothState();
+        }
+    }
+    return JSON.stringify(chartData);
+}
+
+function generateDentalCharts(patientLastVisit?: string): { date: string; data: string }[] {
+    const charts: { date: string; data: string }[] = [];
+    if (Math.random() < 0.5) {
+        return charts;
+    }
+
+    const chartCount = getRandomInt(1, 3);
+    let lastDate = patientLastVisit ? new Date(patientLastVisit) : new Date();
+    if (!patientLastVisit) {
+        lastDate.setFullYear(lastDate.getFullYear() - getRandomInt(0, 2));
+    }
+
+    for (let i = 0; i < chartCount; i++) {
+        charts.push({
+            date: lastDate.toISOString().split("T")[0],
+            data: generateRandomDentalChartData()
+        });
+        lastDate.setMonth(lastDate.getMonth() - getRandomInt(6, 12));
+    }
+
+    return charts.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+}
+
 function generatePatients(count: number = 25): Omit<Patient, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] {
   const generatedPatients: Omit<Patient, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] = [];
   const now = new Date();
@@ -203,7 +263,10 @@ function generatePatients(count: number = 25): Omit<Patient, "id" | "createdAt" 
     const dateOfBirth = new Date(getRandomInt(1960, 2005), getRandomInt(0, 11), getRandomInt(1, 28));
 
     const hasLastVisit = Math.random() > 0.2;
-    const lastVisitDate = hasLastVisit ? getRandomDate(oneYearAgo, now).toISOString().split("T")[0] : undefined;
+    const randomVisitDate = getRandomDate(oneYearAgo, now);
+    const lastVisitDate = hasLastVisit ? `${randomVisitDate.getFullYear()}-${(randomVisitDate.getMonth() + 1).toString().padStart(2, '0')}-${randomVisitDate.getDate().toString().padStart(2, '0')}` : undefined;
+    
+    const dentalCharts = generateDentalCharts(lastVisitDate);
 
     const patient: Omit<Patient, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt"> = {
       firstName,
@@ -221,6 +284,7 @@ function generatePatients(count: number = 25): Omit<Patient, "id" | "createdAt" 
       allergies: Math.random() > 0.7 ? getRandomElement(["Penicillin", "Latex", "Iodine", "None"]) : "None",
       medicalHistory: getRandomElement(["Diabetes", "Hypertension", "Asthma", "None"]),
       notes: getRandomElement(["VIP patient", "Referred by friend", "Online inquiry", ""]),
+      dentalCharts: dentalCharts,
       lastVisit: lastVisitDate,
     };
 
@@ -243,9 +307,10 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
         patientId: patient.id || "",
         patientName: `${patient.firstName} ${patient.lastName}`,
         date: patient.lastVisit,
-        time: `${String(getRandomInt(8, 17)).padStart(2, "0")}:${String(getRandomElement([0, 15, 30, 45])).padStart(2, "0")}`,
-        type: getRandomElement(appointmentTypes),
+        time: `${String(getRandomInt(8, 17)).padStart(2, "0")}:${String(getRandomElement([0, 30])).padStart(2, "0")}`,
+        type: getRandomInt(0, APPOINTMENT_TYPES.length - 2), // Avoid 'Other' for past, completed appointments
         doctor: doctorsList.length > 0 ? getRandomElement(doctorsList) : "",
+        price: parseFloat(getRandomInt(50, 500).toFixed(2)),
         status: "completed",
         notes: "Routine visit completed.",
       });
@@ -260,15 +325,19 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
     const isPast = Math.random() > 0.8;
     const appointmentDate = isPast ? getRandomDate(oneYearAgo, now) : getRandomDate(now, sixMonthsLater);
     const hour = getRandomInt(8, 17);
-    const minute = getRandomElement([0, 15, 30, 45]);
+    const minute = getRandomElement([0, 30]);
+    const appointmentTypeIndex = getRandomInt(0, APPOINTMENT_TYPES.length - 1);
+    const customType = appointmentTypeIndex === APPOINTMENT_TYPES.length - 1 ? "Custom user-defined procedure" : undefined;
 
     const appointment: Omit<Appointment, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt"> = {
       patientId: patient.id || "",
       patientName: `${patient.firstName} ${patient.lastName}`,
-      date: appointmentDate.toISOString().split("T")[0],
+      date: `${appointmentDate.getFullYear()}-${(appointmentDate.getMonth() + 1).toString().padStart(2, '0')}-${appointmentDate.getDate().toString().padStart(2, '0')}`,
       time: `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`,
-      type: getRandomElement(appointmentTypes),
+      type: appointmentTypeIndex,
+      customType: customType,
       doctor: doctorsList.length > 0 ? getRandomElement(doctorsList) : "",
+      price: parseFloat(getRandomInt(50, 500).toFixed(2)),
       status: isPast ? "completed" : getRandomElement(["pending", "confirmed", "scheduled"]),
       notes: getRandomElement([
         "Routine cleaning and checkup",

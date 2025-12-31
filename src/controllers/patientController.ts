@@ -39,6 +39,7 @@ export const addPatient = (req: Request, res: Response<ApiResponse<Patient>>) =>
       medicalHistory: patientData.medicalHistory || "",
       allergies: patientData.allergies || "",
       notes: patientData.notes || "",
+      dentalCharts: patientData.dentalCharts || [],
       createdAt: new Date(),
       updatedAt: new Date(),
       deleted: false,

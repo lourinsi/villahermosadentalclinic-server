@@ -4,7 +4,9 @@ export interface Appointment {
   patientName: string;
   date: string; // YYYY-MM-DD
   time: string; // HH:MM
-  type: string; // e.g., "Cleaning", "Checkup", "Filling"
+  type: number; // Index referring to APPOINTMENT_TYPES array
+  customType?: string; // Used when type is 'Other'
+  price?: number;
   doctor: string;
   duration?: number; // in minutes
   notes?: string;
