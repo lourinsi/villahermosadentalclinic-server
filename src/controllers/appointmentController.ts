@@ -80,7 +80,7 @@ export const getAppointments = (
   res: Response<ApiResponse<Appointment[]>>
 ) => {
   try {
-    const { startDate, endDate, search } = req.query as Record<string, string>;
+    const { startDate, endDate, search, doctor, type, status } = req.query as Record<string, string>;
     
     // return only non-deleted appointments
     let filtered = appointments.filter(a => !a.deleted);
@@ -101,6 +101,17 @@ export const getAppointments = (
       if (endDate) {
         filtered = filtered.filter(a => a.date <= endDate);
       }
+    }
+
+    // Apply additional filters
+    if (doctor && doctor !== 'all') {
+      filtered = filtered.filter(a => a.doctor === doctor);
+    }
+    if (type && type !== 'all') {
+      filtered = filtered.filter(a => a.type === parseInt(type, 10));
+    }
+    if (status && status !== 'all') {
+      filtered = filtered.filter(a => a.status === status);
     }
 
     res.json({
