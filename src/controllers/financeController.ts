@@ -9,12 +9,10 @@ import {
   Payroll,
   RecentTransaction,
 } from "../types/finance";
+import { readData, writeData } from "../utils/storage";
 
-// Temporary in-memory storage (replace with database later)
-const financeRecords: FinanceRecord[] = [];
-const detailedExpenses: DetailedExpense[] = [];
-let financeIdCounter = 0;
-let detailedExpenseIdCounter = 0;
+const RECORDS_COLLECTION = "finance_records";
+const EXPENSES_COLLECTION = "detailed_expenses";
 
 // --- CRUD Operations ---
 
@@ -23,6 +21,7 @@ export const createFinanceRecord = (
   res: Response<ApiResponse<FinanceRecord>>
 ) => {
   try {
+    const financeRecords = readData<FinanceRecord>(RECORDS_COLLECTION);
     console.log("[FINANCE CREATE] Received request body:", req.body);
     const financeData: FinanceRecord = req.body;
 
@@ -38,7 +37,7 @@ export const createFinanceRecord = (
     console.log("[FINANCE CREATE] Creating finance record of type:", financeData.type);
 
     const newRecord: FinanceRecord = {
-      id: `fin_${Date.now()}_${financeIdCounter++}`,
+      id: `fin_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
       ...financeData,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -46,6 +45,7 @@ export const createFinanceRecord = (
     };
 
     financeRecords.push(newRecord);
+    writeData(RECORDS_COLLECTION, financeRecords);
     console.log("[FINANCE CREATE] Finance record saved. Total records:", financeRecords.length);
 
     res.status(201).json({
@@ -68,6 +68,7 @@ export const createDetailedExpense = (
   res: Response<ApiResponse<DetailedExpense>>
 ) => {
   try {
+    const detailedExpenses = readData<DetailedExpense>(EXPENSES_COLLECTION);
     const expenseData: DetailedExpense = req.body;
 
     // Basic validation
@@ -80,12 +81,13 @@ export const createDetailedExpense = (
 
     const newExpense: DetailedExpense = {
       ...expenseData,
-      id: `exp_${Date.now()}_${detailedExpenseIdCounter++}`,
+      id: `exp_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
       status: 'pending',
       recurring: false, // default value
     };
 
     detailedExpenses.push(newExpense);
+    writeData(EXPENSES_COLLECTION, detailedExpenses);
 
     res.status(201).json({
       success: true,
@@ -107,6 +109,7 @@ export const getAllFinanceRecords = (
   res: Response<ApiResponse<FinanceRecord[]>>
 ) => {
   try {
+    const financeRecords = readData<FinanceRecord>(RECORDS_COLLECTION);
     const { page = "1", limit = "20" } = req.query as Record<string, string>;
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.max(1, parseInt(limit, 10) || 20);
@@ -139,6 +142,7 @@ export const getFinanceRecordById = (
   res: Response<ApiResponse<FinanceRecord | null>>
 ) => {
   try {
+    const financeRecords = readData<FinanceRecord>(RECORDS_COLLECTION);
     const { id } = req.params;
     const record = financeRecords.find((rec) => rec.id === id);
 
@@ -169,6 +173,7 @@ export const updateFinanceRecord = (
   res: Response<ApiResponse<FinanceRecord | null>>
 ) => {
   try {
+    const financeRecords = readData<FinanceRecord>(RECORDS_COLLECTION);
     const { id } = req.params;
     const updates: Partial<FinanceRecord> = req.body;
 
@@ -188,6 +193,7 @@ export const updateFinanceRecord = (
     };
 
     financeRecords[recordIndex] = updatedRecord;
+    writeData(RECORDS_COLLECTION, financeRecords);
 
     res.json({
       success: true,
@@ -209,6 +215,7 @@ export const deleteFinanceRecord = (
   res: Response<ApiResponse<null>>
 ) => {
   try {
+    const financeRecords = readData<FinanceRecord>(RECORDS_COLLECTION);
     const { id } = req.params;
     const recordIndex = financeRecords.findIndex((rec) => rec.id === id);
 
@@ -226,6 +233,7 @@ export const deleteFinanceRecord = (
       deletedAt: new Date(),
       updatedAt: new Date(),
     };
+    writeData(RECORDS_COLLECTION, financeRecords);
 
     console.log("[FINANCE DELETE] Soft-deleted finance record:", financeRecords[recordIndex]);
 
@@ -291,6 +299,7 @@ export const getDetailedExpenses = (
   res: Response<ApiResponse<DetailedExpense[]>>
 ) => {
   try {
+    const detailedExpenses = readData<DetailedExpense>(EXPENSES_COLLECTION);
     res.json({
       success: true,
       message: "Detailed expenses retrieved successfully",

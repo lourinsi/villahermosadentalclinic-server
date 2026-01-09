@@ -10,7 +10,7 @@ import {
   updateStaffFinancialRecord,
   approveStaffFinancialRecord,
   deleteStaffFinancialRecord,
-  getStaffAttendance,
+  getAttendance,
 } from "../controllers/staffController";
 
 const router = Router();
@@ -37,7 +37,7 @@ router.put("/financials/:id", updateStaffFinancialRecord);
 router.delete("/financials/:id", deleteStaffFinancialRecord);
 
 // GET - Get staff attendance records - MORE SPECIFIC ROUTE FIRST
-router.get("/attendance", getStaffAttendance);
+router.get("/attendance", getAttendance);
 
 // GET - Get staff member by ID - GENERAL ROUTE LAST
 router.get("/:id", getStaffById);

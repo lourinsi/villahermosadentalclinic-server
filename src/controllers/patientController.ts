@@ -1,12 +1,12 @@
 import { Request, Response } from "express";
 import { Patient, ApiResponse } from "../types/patient";
+import { readData, writeData } from "../utils/storage";
 
-// Temporary in-memory storage (replace with database later)
-const patients: Patient[] = [];
-let patientIdCounter = 0;
+const COLLECTION = "patients";
 
 export const addPatient = (req: Request, res: Response<ApiResponse<Patient>>) => {
   try {
+    const patients = readData<Patient>(COLLECTION);
     console.log("[PATIENT CREATE] Received request body:", req.body);
     const patientData: Patient = req.body;
 
@@ -23,7 +23,7 @@ export const addPatient = (req: Request, res: Response<ApiResponse<Patient>>) =>
 
     // Create patient object with ID and timestamps
     const newPatient: Patient = {
-      id: `patient_${Date.now()}_${patientIdCounter++}`,
+      id: `patient_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
       firstName: patientData.firstName || "",
       lastName: patientData.lastName || "",
       email: patientData.email || "",
@@ -47,6 +47,7 @@ export const addPatient = (req: Request, res: Response<ApiResponse<Patient>>) =>
 
     console.log("[PATIENT CREATE] New patient object created:", newPatient);
     patients.push(newPatient);
+    writeData(COLLECTION, patients);
     console.log("[PATIENT CREATE] Patient saved. Total patients:", patients.length);
 
     res.status(201).json({
@@ -69,6 +70,7 @@ export const getPatients = (
   res: Response<ApiResponse<Patient[]>>
 ) => {
   try {
+    const patients = readData<Patient>(COLLECTION);
     // server-side filtering + pagination
     const { page = "1", limit = "10", search = "", status = "all" } = req.query as Record<string, string>;
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
@@ -127,6 +129,7 @@ export const getPatientById = (
   res: Response<ApiResponse<Patient | null>>
 ) => {
   try {
+    const patients = readData<Patient>(COLLECTION);
     const { id } = req.params;
     const patient = patients.find((p) => p.id === id);
 
@@ -157,6 +160,7 @@ export const updatePatient = (
   res: Response<ApiResponse<Patient | null>>
 ) => {
   try {
+    const patients = readData<Patient>(COLLECTION);
     const { id } = req.params;
     console.log("[PATIENT UPDATE] Received update request for patient ID:", id);
     console.log("[PATIENT UPDATE] Update data:", req.body);
@@ -179,6 +183,7 @@ export const updatePatient = (
 
     console.log("[PATIENT UPDATE] Updated patient data:", updatedPatient);
     patients[patientIndex] = updatedPatient;
+    writeData(COLLECTION, patients);
 
     res.json({
       success: true,
@@ -200,6 +205,7 @@ export const deletePatient = (
   res: Response<ApiResponse<null>>
 ) => {
   try {
+    const patients = readData<Patient>(COLLECTION);
     const { id } = req.params;
     const patientIndex = patients.findIndex((p) => p.id === id);
 
@@ -217,6 +223,7 @@ export const deletePatient = (
       deletedAt: new Date(),
       updatedAt: new Date(),
     };
+    writeData(COLLECTION, patients);
 
     res.json({
       success: true,

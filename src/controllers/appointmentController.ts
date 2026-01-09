@@ -1,13 +1,13 @@
 import { Request, Response } from "express";
 import { Appointment, ApiResponse } from "../types/appointment";
 import { APPOINTMENT_TYPES, getAppointmentTypeName } from "../utils/appointment-types";
+import { readData, writeData } from "../utils/storage";
 
-// Temporary in-memory storage (replace with database later)
-const appointments: Appointment[] = [];
-let appointmentIdCounter = 0;
+const COLLECTION = "appointments";
 
 export const addAppointment = (req: Request, res: Response<ApiResponse<Appointment>>) => {
   try {
+    const appointments = readData<Appointment>(COLLECTION);
     console.log("[APPOINTMENT CREATE] Received request body:", req.body);
     const appointmentData: Appointment = req.body;
 
@@ -39,7 +39,7 @@ export const addAppointment = (req: Request, res: Response<ApiResponse<Appointme
 
     // Create appointment object with ID and timestamps
     const newAppointment: Appointment = {
-      id: `apt_${Date.now()}_${appointmentIdCounter++}`,
+      id: `apt_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
       patientId: appointmentData.patientId,
       patientName: appointmentData.patientName,
       date: appointmentData.date,
@@ -58,6 +58,7 @@ export const addAppointment = (req: Request, res: Response<ApiResponse<Appointme
 
     console.log("[APPOINTMENT CREATE] New appointment object created:", newAppointment);
     appointments.push(newAppointment);
+    writeData(COLLECTION, appointments);
     console.log("[APPOINTMENT CREATE] Appointment saved. Total appointments:", appointments.length);
 
     res.status(201).json({
@@ -80,6 +81,7 @@ export const getAppointments = (
   res: Response<ApiResponse<Appointment[]>>
 ) => {
   try {
+    const appointments = readData<Appointment>(COLLECTION);
     const { startDate, endDate, search, doctor, type, status } = req.query as Record<string, string>;
     
     // return only non-deleted appointments
@@ -134,6 +136,7 @@ export const getAppointmentById = (
   res: Response<ApiResponse<Appointment | null>>
 ) => {
   try {
+    const appointments = readData<Appointment>(COLLECTION);
     const { id } = req.params;
     const appointment = appointments.find((apt) => apt.id === id);
 
@@ -164,6 +167,7 @@ export const updateAppointment = (
   res: Response<ApiResponse<Appointment | null>>
 ) => {
   try {
+    const appointments = readData<Appointment>(COLLECTION);
     const { id } = req.params;
     const updates: Partial<Appointment> = req.body;
 
@@ -183,6 +187,7 @@ export const updateAppointment = (
     };
 
     appointments[appointmentIndex] = updatedAppointment;
+    writeData(COLLECTION, appointments);
 
     res.json({
       success: true,
@@ -204,6 +209,7 @@ export const deleteAppointment = (
   res: Response<ApiResponse<null>>
 ) => {
   try {
+    const appointments = readData<Appointment>(COLLECTION);
     const { id } = req.params;
     const appointmentIndex = appointments.findIndex((apt) => apt.id === id);
 
@@ -221,6 +227,7 @@ export const deleteAppointment = (
       deletedAt: new Date(),
       updatedAt: new Date(),
     };
+    writeData(COLLECTION, appointments);
 
     console.log("[APPOINTMENT DELETE] Soft-deleted appointment:", appointments[appointmentIndex]);
 

@@ -2,16 +2,20 @@ import { Request, Response } from "express";
 import {
   Staff,
   StaffFinancialRecord,
-  Attendance,
+  Attendance as BaseAttendance,
   ApiResponse,
 } from "../types/staff";
+import { readData, writeData } from "../utils/storage";
 
-// Temporary in-memory storage (replace with database later)
-const staffMembers: Staff[] = [];
-const staffFinancialRecords: StaffFinancialRecord[] = [];
-const staffAttendanceRecords: Attendance[] = [];
+interface Attendance extends BaseAttendance {
+  id: string;
+  date: string;
+  status: string;
+}
 
-let staffIdCounter = 0;
+const STAFF_COLLECTION = "staff";
+const FINANCIAL_COLLECTION = "staff_financial_records";
+const ATTENDANCE_COLLECTION = "staff_attendance";
 
 // --- CRUD Operations for Staff Members ---
 
@@ -20,6 +24,7 @@ export const createStaff = (
   res: Response<ApiResponse<Staff>>
 ) => {
   try {
+    const staffMembers = readData<Staff>(STAFF_COLLECTION);
     console.log("[STAFF CREATE] Received request body:", req.body);
     const staffData: Staff = req.body;
 
@@ -35,7 +40,7 @@ export const createStaff = (
     console.log("[STAFF CREATE] Creating staff member:", staffData.name);
 
     const newStaff: Staff = {
-      id: `staff_${Date.now()}_${staffIdCounter++}`,
+      id: `staff_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
       ...staffData,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -43,6 +48,7 @@ export const createStaff = (
     };
 
     staffMembers.push(newStaff);
+    writeData(STAFF_COLLECTION, staffMembers);
     console.log("[STAFF CREATE] Staff member saved. Total staff:", staffMembers.length);
 
     res.status(201).json({
@@ -65,6 +71,7 @@ export const getAllStaff = (
   res: Response<ApiResponse<Staff[]>>
 ) => {
   try {
+    const staffMembers = readData<Staff>(STAFF_COLLECTION);
     const { page = "1", limit = "20" } = req.query as Record<string, string>;
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.max(1, parseInt(limit, 10) || 20);
@@ -97,6 +104,7 @@ export const getStaffById = (
   res: Response<ApiResponse<Staff | null>>
 ) => {
   try {
+    const staffMembers = readData<Staff>(STAFF_COLLECTION);
     const { id } = req.params;
     const staff = staffMembers.find((rec) => rec.id === id);
 
@@ -127,6 +135,7 @@ export const updateStaff = (
   res: Response<ApiResponse<Staff | null>>
 ) => {
   try {
+    const staffMembers = readData<Staff>(STAFF_COLLECTION);
     const { id } = req.params;
     const updates: Partial<Staff> = req.body;
 
@@ -146,6 +155,7 @@ export const updateStaff = (
     };
 
     staffMembers[staffIndex] = updatedStaff;
+    writeData(STAFF_COLLECTION, staffMembers);
 
     res.json({
       success: true,
@@ -167,6 +177,7 @@ export const deleteStaff = (
   res: Response<ApiResponse<null>>
 ) => {
   try {
+    const staffMembers = readData<Staff>(STAFF_COLLECTION);
     const { id } = req.params;
     const staffIndex = staffMembers.findIndex((rec) => rec.id === id);
 
@@ -184,6 +195,7 @@ export const deleteStaff = (
       deletedAt: new Date(),
       updatedAt: new Date(),
     };
+    writeData(STAFF_COLLECTION, staffMembers);
 
     console.log("[STAFF DELETE] Soft-deleted staff member:", staffMembers[staffIndex]);
 
@@ -201,13 +213,13 @@ export const deleteStaff = (
   }
 };
 
-let staffFinancialRecordIdCounter = 0;
-
 export const createStaffFinancialRecord = (
   req: Request,
   res: Response<ApiResponse<StaffFinancialRecord>>
 ) => {
   try {
+    const staffMembers = readData<Staff>(STAFF_COLLECTION);
+    const staffFinancialRecords = readData<StaffFinancialRecord>(FINANCIAL_COLLECTION);
     const recordData: StaffFinancialRecord = req.body;
 
     // Basic validation
@@ -228,12 +240,13 @@ export const createStaffFinancialRecord = (
 
     const newRecord: StaffFinancialRecord = {
       ...recordData,
-      id: `staff_fin_${Date.now()}_${staffFinancialRecordIdCounter++}`,
+      id: `staff_fin_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
       staffName: staffMember.name,
       status: 'pending',
     };
 
     staffFinancialRecords.push(newRecord);
+    writeData(FINANCIAL_COLLECTION, staffFinancialRecords);
 
     res.status(201).json({
       success: true,
@@ -250,13 +263,14 @@ export const createStaffFinancialRecord = (
   }
 };
 
-// --- Staff-specific Endpoints (using mock data for now) ---
+// --- Staff-specific Endpoints ---
 
 export const getStaffFinancialRecords = (
   req: Request,
   res: Response<ApiResponse<StaffFinancialRecord[]>>
 ) => {
   try {
+    const staffFinancialRecords = readData<StaffFinancialRecord>(FINANCIAL_COLLECTION);
     res.json({
       success: true,
       message: "Staff financial records retrieved successfully",
@@ -280,6 +294,8 @@ export const updateStaffFinancialRecord = (
   res: Response<ApiResponse<StaffFinancialRecord>>
 ) => {
   try {
+    const staffMembers = readData<Staff>(STAFF_COLLECTION);
+    const staffFinancialRecords = readData<StaffFinancialRecord>(FINANCIAL_COLLECTION);
     const { id } = req.params;
     const updates: Partial<StaffFinancialRecord> = req.body;
 
@@ -317,6 +333,7 @@ export const updateStaffFinancialRecord = (
     };
 
     staffFinancialRecords[recordIndex] = updatedRecord;
+    writeData(FINANCIAL_COLLECTION, staffFinancialRecords);
 
     res.json({
       success: true,
@@ -338,6 +355,7 @@ export const approveStaffFinancialRecord = (
   res: Response<ApiResponse<StaffFinancialRecord>>
 ) => {
   try {
+    const staffFinancialRecords = readData<StaffFinancialRecord>(FINANCIAL_COLLECTION);
     const { id } = req.params;
     const recordIndex = staffFinancialRecords.findIndex((rec) => rec.id === id);
 
@@ -362,6 +380,7 @@ export const approveStaffFinancialRecord = (
     };
 
     staffFinancialRecords[recordIndex] = updatedRecord;
+    writeData(FINANCIAL_COLLECTION, staffFinancialRecords);
 
     res.json({
       success: true,
@@ -383,6 +402,7 @@ export const deleteStaffFinancialRecord = (
   res: Response<ApiResponse<null>>
 ) => {
   try {
+    const staffFinancialRecords = readData<StaffFinancialRecord>(FINANCIAL_COLLECTION);
     const { id } = req.params;
     const recordIndex = staffFinancialRecords.findIndex((rec) => rec.id === id);
 
@@ -394,6 +414,7 @@ export const deleteStaffFinancialRecord = (
     }
 
     staffFinancialRecords.splice(recordIndex, 1);
+    writeData(FINANCIAL_COLLECTION, staffFinancialRecords);
 
     res.json({
       success: true,
@@ -409,26 +430,61 @@ export const deleteStaffFinancialRecord = (
   }
 };
 
-export const getStaffAttendance = (
+export const getAttendance = (
   req: Request,
   res: Response<ApiResponse<Attendance[]>>
 ) => {
   try {
-    // TODO: Replace with actual logic if needed
-    const data: Attendance[] = [];
+    const attendanceRecords = readData<Attendance>(ATTENDANCE_COLLECTION);
     res.json({
       success: true,
-      message: "Staff attendance records retrieved successfully",
-      data,
+      message: "Attendance records retrieved successfully",
+      data: attendanceRecords,
     });
   } catch (error) {
-    console.error(
-      "[STAFF ATTENDANCE] Error fetching staff attendance records:",
-      error
-    );
+    console.error("[STAFF ATTENDANCE] Error fetching attendance records:", error);
     res.status(500).json({
       success: false,
-      message: "Error fetching staff attendance records",
+      message: "Error fetching attendance records",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
+
+export const markAttendance = (
+  req: Request,
+  res: Response<ApiResponse<Attendance>>
+) => {
+  try {
+    const attendanceRecords = readData<Attendance>(ATTENDANCE_COLLECTION);
+    const attendanceData: Attendance = req.body;
+
+    // Basic validation
+    if (!attendanceData.staffId || !attendanceData.status || !attendanceData.date) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing required fields: staffId, status, date",
+      });
+    }
+
+    const newAttendance: Attendance = {
+      ...attendanceData,
+      id: `att_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+    };
+
+    attendanceRecords.push(newAttendance);
+    writeData(ATTENDANCE_COLLECTION, attendanceRecords);
+
+    res.status(201).json({
+      success: true,
+      message: "Attendance marked successfully",
+      data: newAttendance,
+    });
+  } catch (error) {
+    console.error("[STAFF MARK_ATTENDANCE] ERROR:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error marking attendance",
       error: error instanceof Error ? error.message : "Unknown error",
     });
   }
