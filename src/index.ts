@@ -25,12 +25,17 @@ app.use(
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+
 // Routes
 app.use("/api/patients", patientRoutes);
 app.use("/api/appointments", appointmentRoutes);
 app.use("/api/finance", financeRoutes);
 app.use("/api/staff", staffRoutes);
 app.use("/api/inventory", inventoryRoutes);
+
+// app.get("/users", (req,res)=>{
+//   res.send("Hello World")
+// })
 
 // Health check endpoint
 app.get("/api/health", (req: express.Request, res: express.Response) => {
@@ -44,6 +49,8 @@ app.use((req: express.Request, res: express.Response) => {
     message: "Route not found",
   });
 });
+
+
 
 // Start server
 app.listen(PORT, () => {
