@@ -11,6 +11,18 @@ export interface Appointment {
   duration?: number; // in minutes
   notes?: string;
   status?: "scheduled" | "confirmed" | "pending" | "tentative" | "completed" | "cancelled";
+  paymentStatus?: "paid" | "unpaid" | "overdue" | "half-paid" | "over-paid";
+  balance?: number;
+  totalPaid?: number;
+  transactions?: {
+    id: string;
+    amount: number;
+    method?: string;
+    date?: string;
+    transactionId?: string;
+    notes?: string;
+    status?: string;
+  }[];
   createdAt?: Date;
   updatedAt?: Date;
   deleted?: boolean;

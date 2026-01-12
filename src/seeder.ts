@@ -227,8 +227,8 @@ function generateRandomDentalChartData(): string {
     return JSON.stringify(chartData);
 }
 
-function generateDentalCharts(patientLastVisit?: string): { date: string; data: string }[] {
-    const charts: { date: string; data: string }[] = [];
+function generateDentalCharts(patientLastVisit?: string): { date: string; data: string; isEmpty: boolean }[] {
+  const charts: { date: string; data: string; isEmpty: boolean }[] = [];
     if (Math.random() < 0.5) {
         return charts;
     }
@@ -240,10 +240,11 @@ function generateDentalCharts(patientLastVisit?: string): { date: string; data: 
     }
 
     for (let i = 0; i < chartCount; i++) {
-        charts.push({
-            date: lastDate.toISOString().split("T")[0],
-            data: generateRandomDentalChartData()
-        });
+    charts.push({
+      date: lastDate.toISOString().split("T")[0],
+      data: generateRandomDentalChartData(),
+      isEmpty: false,
+    });
         lastDate.setMonth(lastDate.getMonth() - getRandomInt(6, 12));
     }
 
