@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import patientRoutes from "./routes/patientRoutes";
 import appointmentRoutes from "./routes/appointmentRoutes";
 import financeRoutes from "./routes/financeRoutes";
+import paymentRoutes from "./routes/paymentRoutes";
 import staffRoutes from "./routes/staffRoutes";
 import inventoryRoutes from "./routes/inventoryRoutes";
 
@@ -32,6 +33,7 @@ app.use("/api/appointments", appointmentRoutes);
 app.use("/api/finance", financeRoutes);
 app.use("/api/staff", staffRoutes);
 app.use("/api/inventory", inventoryRoutes);
+app.use("/api/payments", paymentRoutes);
 
 // app.get("/users", (req,res)=>{
 //   res.send("Hello World")

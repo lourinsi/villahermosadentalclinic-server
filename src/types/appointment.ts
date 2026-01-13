@@ -14,6 +14,7 @@ export interface Appointment {
   paymentStatus?: "paid" | "unpaid" | "overdue" | "half-paid" | "over-paid";
   balance?: number;
   totalPaid?: number;
+  // Deprecated: transactions are now stored in payments collection. Keep for backward compat only.
   transactions?: {
     id: string;
     amount: number;

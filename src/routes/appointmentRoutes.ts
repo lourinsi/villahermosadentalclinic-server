@@ -4,7 +4,6 @@ import {
   getAppointments,
   getAppointmentById,
   updateAppointment,
-  recordPayment,
   deleteAppointment,
 } from "../controllers/appointmentController";
 
@@ -21,9 +20,6 @@ router.get("/:id", getAppointmentById);
 
 // PUT - Update appointment
 router.put("/:id", updateAppointment);
-
-// POST - Record payment for appointment
-router.post("/:id/pay", recordPayment);
 
 // DELETE - Delete appointment
 router.delete("/:id", deleteAppointment);
