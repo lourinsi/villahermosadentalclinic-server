@@ -5,6 +5,7 @@ import patientRoutes from "./routes/patientRoutes";
 import appointmentRoutes from "./routes/appointmentRoutes";
 import financeRoutes from "./routes/financeRoutes";
 import paymentRoutes from "./routes/paymentRoutes";
+import paymentMethodRoutes from "./routes/paymentMethodRoutes";
 import staffRoutes from "./routes/staffRoutes";
 import inventoryRoutes from "./routes/inventoryRoutes";
 
@@ -26,6 +27,11 @@ app.use(
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Request logging middleware
+app.use((req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.log(`[REQUEST] ${req.method} ${req.path}`);
+  next();
+});
 
 // Routes
 app.use("/api/patients", patientRoutes);
@@ -34,6 +40,7 @@ app.use("/api/finance", financeRoutes);
 app.use("/api/staff", staffRoutes);
 app.use("/api/inventory", inventoryRoutes);
 app.use("/api/payments", paymentRoutes);
+app.use("/api/payment-methods", paymentMethodRoutes);
 
 // app.get("/users", (req,res)=>{
 //   res.send("Hello World")

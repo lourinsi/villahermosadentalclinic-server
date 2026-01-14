@@ -7,6 +7,7 @@ import { Appointment } from "./types/appointment";
 import { Staff } from "./types/staff";
 import { InventoryItem } from "./types/inventory";
 import { FinanceRecord } from "./types/finance";
+import { PaymentMethod } from "./types/paymentMethod";
 
 
 // Sample data for seeding
@@ -179,6 +180,15 @@ const staffMembersData: Omit<Staff, "id" | "createdAt" | "updatedAt" | "deleted"
     specialization: "Patient Relations",
     licenseNumber: "N/A"
   }
+];
+
+const paymentMethodsData: Omit<PaymentMethod, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] = [
+  { name: "Credit Card", isActive: true },
+  { name: "Cash", isActive: true },
+  { name: "Debit Card", isActive: true },
+  { name: "Insurance", isActive: true },
+  { name: "Check", isActive: true },
+  { name: "Bank Transfer", isActive: true },
 ];
 
 const dentistStaffMembers = staffMembersData.filter(
@@ -487,6 +497,27 @@ async function seedDatabase() {
     }
     console.log(`✅ All inventory items added. Total: ${inventoryItemsData.length}\n`);
 
+    // --- Seed Payment Methods ---
+    console.log("📤 Adding payment methods to database via API...");
+    for (const paymentMethodData of paymentMethodsData) {
+      try {
+        const response = await fetch("http://localhost:3001/api/payment-methods", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(paymentMethodData),
+        });
+
+        if (!response.ok) {
+          console.error(`❌ Failed to add payment method: ${paymentMethodData.name}`);
+        }
+      } catch (err) {
+        console.error(`❌ Error adding payment method: ${err}`);
+      }
+    }
+    console.log(`✅ All payment methods added. Total: ${paymentMethodsData.length}\n`);
+
     // --- Seed Staff Members ---
     console.log("📤 Adding staff members to database via API...");
     for (const staffData of staffMembersData) {
@@ -513,6 +544,7 @@ async function seedDatabase() {
     console.log(`   ✅ Total Appointments Added: ${generatedAppointmentsData.length}`);
     console.log(`   ✅ Total Finance Records Added: ${generatedFinanceRecords.length}`);
     console.log(`   ✅ Total Inventory Items Added: ${inventoryItemsData.length}`);
+    console.log(`   ✅ Total Payment Methods Added: ${paymentMethodsData.length}`);
     console.log(`   ✅ Total Staff Members Added: ${staffMembersData.length}`);
     console.log("\n✨ Database seeding completed successfully!");
     console.log("🎉 You can now refresh your application to see the new data.\n");
