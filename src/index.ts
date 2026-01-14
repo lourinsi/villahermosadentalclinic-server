@@ -1,13 +1,6 @@
 import express, { Express } from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import patientRoutes from "./routes/patientRoutes";
-import appointmentRoutes from "./routes/appointmentRoutes";
-import financeRoutes from "./routes/financeRoutes";
-import paymentRoutes from "./routes/paymentRoutes";
-import paymentMethodRoutes from "./routes/paymentMethodRoutes";
-import staffRoutes from "./routes/staffRoutes";
-import inventoryRoutes from "./routes/inventoryRoutes";
 
 // Load environment variables
 dotenv.config();
@@ -27,13 +20,39 @@ app.use(
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Manual cookie parser (Express doesn't parse cookies by default)
+app.use((req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const cookies: { [key: string]: string } = {};
+  if (req.headers.cookie) {
+    req.headers.cookie.split(';').forEach((cookie) => {
+      const [name, value] = cookie.trim().split('=');
+      if (name && value) {
+        cookies[name] = decodeURIComponent(value);
+      }
+    });
+  }
+  (req as any).cookies = cookies;
+  next();
+});
+
 // Request logging middleware
 app.use((req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.log(`[REQUEST] ${req.method} ${req.path}`);
   next();
 });
 
+import patientRoutes from "./routes/patientRoutes";
+import appointmentRoutes from "./routes/appointmentRoutes";
+import financeRoutes from "./routes/financeRoutes";
+import paymentRoutes from "./routes/paymentRoutes";
+import paymentMethodRoutes from "./routes/paymentMethodRoutes";
+import staffRoutes from "./routes/staffRoutes";
+import inventoryRoutes from "./routes/inventoryRoutes";
+import authRoutes from "./routes/authRoutes";
+import { initializeAuth } from "./controllers/authController";
+
 // Routes
+app.use("/api/auth", authRoutes);
 app.use("/api/patients", patientRoutes);
 app.use("/api/appointments", appointmentRoutes);
 app.use("/api/finance", financeRoutes);
@@ -59,12 +78,20 @@ app.use((req: express.Request, res: express.Response) => {
   });
 });
 
-
-
 // Start server
-app.listen(PORT, () => {
-  console.log(
-    `🚀 Server is running on http://localhost:${PORT}`
-  );
-  console.log(`📍 Frontend URL: ${FRONTEND_URL}`);
-});
+(async () => {
+  try {
+    // Initialize authentication (hash password)
+    await initializeAuth();
+
+    app.listen(PORT, () => {
+      console.log(
+        `🚀 Server is running on http://localhost:${PORT}`
+      );
+      console.log(`📍 Frontend URL: ${FRONTEND_URL}`);
+    });
+  } catch (error) {
+    console.error("Failed to start server:", error);
+    process.exit(1);
+  }
+})();
