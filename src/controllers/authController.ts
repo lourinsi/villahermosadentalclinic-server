@@ -1,6 +1,8 @@
 import express from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import { readData } from "../utils/storage";
+import { Staff } from "../types/staff";
 
 // Hardcoded admin credentials (in production, use a database)
 const ADMIN_USERNAME = "admin";
@@ -8,16 +10,22 @@ const ADMIN_USERNAME = "admin";
 const ADMIN_PASSWORD = "password";
 let ADMIN_PASSWORD_HASH: string;
 
+// Default password for doctors (in production, each doctor should have their own password)
+const DEFAULT_DOCTOR_PASSWORD = "doctor123";
+let DOCTOR_PASSWORD_HASH: string;
+
 const JWT_SECRET = process.env.JWT_SECRET || "your-super-secret-jwt-key-change-this-in-production";
 const JWT_EXPIRY = "24h";
+const STAFF_COLLECTION = "staff";
 
 /**
- * Initialize auth - hash the password on startup
+ * Initialize auth - hash the passwords on startup
  */
 export const initializeAuth = async () => {
   try {
     ADMIN_PASSWORD_HASH = await bcrypt.hash(ADMIN_PASSWORD, 10);
-    console.log("[AUTH] Password hash initialized");
+    DOCTOR_PASSWORD_HASH = await bcrypt.hash(DEFAULT_DOCTOR_PASSWORD, 10);
+    console.log("[AUTH] Password hashes initialized");
   } catch (error) {
     console.error("[AUTH] Failed to initialize password hash:", error);
     throw error;
@@ -26,6 +34,7 @@ export const initializeAuth = async () => {
 
 /**
  * Login endpoint - validates credentials and returns JWT token
+ * Supports both admin and doctor logins
  */
 export const login = async (
   req: express.Request,
@@ -35,8 +44,6 @@ export const login = async (
     const { username, password } = req.body;
 
     console.log("[AUTH] Login attempt for username:", username);
-    console.log("[AUTH] Password received length:", password ? password.length : 0);
-    console.log("[AUTH] Password value:", password);
 
     // Validate input
     if (!username || !password) {
@@ -47,61 +54,114 @@ export const login = async (
       return;
     }
 
-    // Check username
-    if (username !== ADMIN_USERNAME) {
-      console.log("[AUTH] Invalid username:", username);
-      res.status(401).json({
-        success: false,
-        message: "Invalid credentials",
+    // First, check if it's the admin user
+    if (username === ADMIN_USERNAME) {
+      const isPasswordValid = await bcrypt.compare(password, ADMIN_PASSWORD_HASH);
+
+      if (!isPasswordValid) {
+        console.log("[AUTH] Invalid password for admin");
+        res.status(401).json({
+          success: false,
+          message: "Invalid credentials",
+        });
+        return;
+      }
+
+      // Generate JWT token for admin
+      const token = jwt.sign(
+        {
+          username: ADMIN_USERNAME,
+          role: "admin",
+          iat: Math.floor(Date.now() / 1000),
+        },
+        JWT_SECRET,
+        { expiresIn: JWT_EXPIRY }
+      );
+
+      console.log("[AUTH] Admin login successful");
+
+      res.cookie("authToken", token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        maxAge: 24 * 60 * 60 * 1000,
+        path: "/",
+      });
+
+      res.status(200).json({
+        success: true,
+        message: "Login successful",
+        token,
+        user: {
+          username: ADMIN_USERNAME,
+          role: "admin",
+        },
       });
       return;
     }
 
-    // Check password
-    console.log("[AUTH] Comparing password...");
-    const isPasswordValid = await bcrypt.compare(password, ADMIN_PASSWORD_HASH);
-    console.log("[AUTH] Password comparison result:", isPasswordValid);
-
-    if (!isPasswordValid) {
-      console.log("[AUTH] Invalid password for user:", username);
-      res.status(401).json({
-        success: false,
-        message: "Invalid credentials",
-      });
-      return;
-    }
-
-    // Generate JWT token
-    const token = jwt.sign(
-      {
-        username: ADMIN_USERNAME,
-        role: "admin",
-        iat: Math.floor(Date.now() / 1000),
-      },
-      JWT_SECRET,
-      { expiresIn: JWT_EXPIRY }
+    // Check if it's a doctor (staff member with role "Doctor")
+    const staffMembers = readData<Staff>(STAFF_COLLECTION);
+    const doctor = staffMembers.find(
+      (staff) =>
+        staff.name.toLowerCase() === username.toLowerCase() &&
+        staff.role === "Doctor" &&
+        !staff.deleted
     );
 
-    console.log("[AUTH] Login successful for user:", username);
+    if (doctor) {
+      // For doctors, check against default password (or staff-specific password in future)
+      const isPasswordValid = await bcrypt.compare(password, DOCTOR_PASSWORD_HASH);
 
-    // Send token as httpOnly cookie (secure)
-    res.cookie("authToken", token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: 24 * 60 * 60 * 1000, // 24 hours
-      path: "/",
-    });
+      if (!isPasswordValid) {
+        console.log("[AUTH] Invalid password for doctor:", username);
+        res.status(401).json({
+          success: false,
+          message: "Invalid credentials",
+        });
+        return;
+      }
 
-    // Also return token in response for client-side use
-    res.status(200).json({
-      success: true,
-      message: "Login successful",
-      token,
-      user: {
-        username: ADMIN_USERNAME,
-        role: "admin",
-      },
+      // Generate JWT token for doctor
+      const token = jwt.sign(
+        {
+          username: doctor.name,
+          role: "doctor",
+          staffId: doctor.id,
+          iat: Math.floor(Date.now() / 1000),
+        },
+        JWT_SECRET,
+        { expiresIn: JWT_EXPIRY }
+      );
+
+      console.log("[AUTH] Doctor login successful:", doctor.name);
+
+      res.cookie("authToken", token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        maxAge: 24 * 60 * 60 * 1000,
+        path: "/",
+      });
+
+      res.status(200).json({
+        success: true,
+        message: "Login successful",
+        token,
+        user: {
+          username: doctor.name,
+          role: "doctor",
+          staffId: doctor.id,
+        },
+      });
+      return;
+    }
+
+    // No matching user found
+    console.log("[AUTH] Invalid username:", username);
+    res.status(401).json({
+      success: false,
+      message: "Invalid credentials",
     });
   } catch (error) {
     console.error("[AUTH] Login error:", error);
