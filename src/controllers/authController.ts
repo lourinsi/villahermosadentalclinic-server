@@ -10,6 +10,11 @@ const ADMIN_USERNAME = "admin";
 const ADMIN_PASSWORD = "password";
 let ADMIN_PASSWORD_HASH: string;
 
+// Hardcoded doctor credentials for testing
+const TEST_DOCTOR_USERNAME = "doctor";
+const TEST_DOCTOR_PASSWORD = "password";
+let TEST_DOCTOR_PASSWORD_HASH: string;
+
 // Default password for doctors (in production, each doctor should have their own password)
 const DEFAULT_DOCTOR_PASSWORD = "doctor123";
 let DOCTOR_PASSWORD_HASH: string;
@@ -24,6 +29,7 @@ const STAFF_COLLECTION = "staff";
 export const initializeAuth = async () => {
   try {
     ADMIN_PASSWORD_HASH = await bcrypt.hash(ADMIN_PASSWORD, 10);
+    TEST_DOCTOR_PASSWORD_HASH = await bcrypt.hash(TEST_DOCTOR_PASSWORD, 10);
     DOCTOR_PASSWORD_HASH = await bcrypt.hash(DEFAULT_DOCTOR_PASSWORD, 10);
     console.log("[AUTH] Password hashes initialized");
   } catch (error) {
@@ -100,12 +106,74 @@ export const login = async (
       return;
     }
 
-    // Check if it's a doctor (staff member with role "Doctor")
+    // Check if it's the test doctor user
+    if (username.toLowerCase() === TEST_DOCTOR_USERNAME) {
+      const isPasswordValid = await bcrypt.compare(password, TEST_DOCTOR_PASSWORD_HASH);
+
+      if (!isPasswordValid) {
+        console.log("[AUTH] Invalid password for test doctor");
+        res.status(401).json({
+          success: false,
+          message: "Invalid credentials",
+        });
+        return;
+      }
+
+      // Link test doctor to Dr. Sarah Johnson
+      const staffMembers = readData<Staff>(STAFF_COLLECTION);
+      const doctor = staffMembers.find(
+        (staff) => staff.name === "Dr. Sarah Johnson" && !staff.deleted
+      );
+
+      if (!doctor) {
+        res.status(404).json({
+          success: false,
+          message: "Test doctor staff record not found",
+        });
+        return;
+      }
+
+      // Generate JWT token for test doctor
+      const token = jwt.sign(
+        {
+          username: doctor.name,
+          role: "doctor",
+          staffId: doctor.id,
+          iat: Math.floor(Date.now() / 1000),
+        },
+        JWT_SECRET,
+        { expiresIn: JWT_EXPIRY }
+      );
+
+      console.log("[AUTH] Test doctor login successful");
+
+      res.cookie("authToken", token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        maxAge: 24 * 60 * 60 * 1000,
+        path: "/",
+      });
+
+      res.status(200).json({
+        success: true,
+        message: "Login successful",
+        token,
+        user: {
+          username: doctor.name,
+          role: "doctor",
+          staffId: doctor.id,
+        },
+      });
+      return;
+    }
+
+    // Check if it's a doctor (staff member with role containing "Dentist" or "Doctor")
     const staffMembers = readData<Staff>(STAFF_COLLECTION);
     const doctor = staffMembers.find(
       (staff) =>
         staff.name.toLowerCase() === username.toLowerCase() &&
-        staff.role === "Doctor" &&
+        (staff.role === "Doctor" || staff.role.toLowerCase().includes("dentist")) &&
         !staff.deleted
     );
 
