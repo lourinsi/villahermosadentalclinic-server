@@ -5,6 +5,7 @@ import {
   getPatientById,
   updatePatient,
   deletePatient,
+  changePassword,
 } from "../controllers/patientController";
 
 const router = Router();
@@ -20,6 +21,9 @@ router.get("/:id", getPatientById);
 
 // PUT - Update patient by ID
 router.put("/:id", updatePatient);
+
+// POST - Change password
+router.post("/:id/change-password", changePassword);
 
 // DELETE - Soft delete patient by ID
 router.delete("/:id", deletePatient);

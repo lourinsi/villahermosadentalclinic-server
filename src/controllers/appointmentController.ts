@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import bcrypt from "bcryptjs";
 import { Appointment, ApiResponse } from "../types/appointment";
 import { APPOINTMENT_TYPES, getAppointmentTypeName } from "../utils/appointment-types";
 import { readData, writeData } from "../utils/storage";
@@ -86,7 +87,7 @@ export const getAppointments = (
 ) => {
   try {
     const appointments = readData<Appointment>(COLLECTION);
-    const { startDate, endDate, search, doctor, type, status } = req.query as Record<string, string>;
+    const { startDate, endDate, search, doctor, type, status, patientId } = req.query as Record<string, string>;
     
     // return only non-deleted appointments
     let filtered = appointments.filter(a => !a.deleted);
@@ -112,6 +113,9 @@ export const getAppointments = (
     // Apply additional filters
     if (doctor && doctor !== 'all') {
       filtered = filtered.filter(a => a.doctor === doctor);
+    }
+    if (patientId) {
+      filtered = filtered.filter(a => a.patientId === patientId);
     }
     if (type && type !== 'all') {
       filtered = filtered.filter(a => a.type === parseInt(type, 10));
@@ -244,6 +248,90 @@ export const deleteAppointment = (
     res.status(500).json({
       success: false,
       message: "Error deleting appointment",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
+
+export const bookPublicAppointment = async (req: Request, res: Response<ApiResponse<Appointment>>) => {
+  try {
+    const appointments = readData<Appointment>(COLLECTION);
+    const patients = readData<Patient>("patients");
+    const { firstName, lastName, email, phone, date, time, type, customType, doctor, notes } = req.body;
+
+    // Basic validation
+    if (!firstName || !lastName || !phone || !date || !time || type == null) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing required fields: firstName, lastName, phone, date, time, type",
+      });
+    }
+
+    // Search for existing patient by phone or email
+    let patient = patients.find(p => p.phone === phone || (email && p.email === email));
+
+    if (!patient) {
+      // Default password for new patients created via booking
+      const passwordHash = await bcrypt.hash("villahermosa123", 10);
+
+      // Create new patient
+      patient = {
+        id: `patient_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+        name: `${firstName} ${lastName}`,
+        firstName,
+        lastName,
+        email: email || "",
+        phone,
+        password: passwordHash,
+        dateOfBirth: "",
+        address: "",
+        city: "",
+        zipCode: "",
+        emergencyContact: "",
+        emergencyPhone: "",
+        status: "active",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        deleted: false,
+      };
+      patients.push(patient);
+      writeData("patients", patients);
+      console.log("[PUBLIC BOOKING] Created new patient:", patient.id);
+    } else {
+      console.log("[PUBLIC BOOKING] Found existing patient:", patient.id);
+    }
+
+    // Create appointment
+    const newAppointment: Appointment = {
+      id: `apt_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      patientId: patient.id!,
+      patientName: `${patient.firstName} ${patient.lastName}`,
+      date,
+      time,
+      type,
+      customType: customType || "",
+      doctor: doctor || "",
+      notes: notes || "",
+      status: "pending", // Public bookings are pending by default
+      paymentStatus: "unpaid",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deleted: false,
+    };
+
+    appointments.push(newAppointment);
+    writeData(COLLECTION, appointments);
+
+    res.status(201).json({
+      success: true,
+      message: "Appointment requested successfully. We will contact you to confirm.",
+      data: newAppointment,
+    });
+  } catch (error) {
+    console.error("[PUBLIC BOOKING] ERROR:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error processing your appointment request",
       error: error instanceof Error ? error.message : "Unknown error",
     });
   }

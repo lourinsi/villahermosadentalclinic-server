@@ -1,16 +1,18 @@
 export interface Patient {
   id?: string;
-  firstName: string;
-  lastName: string;
+  name: string;
   email: string;
   phone: string;
-  dateOfBirth: string;
-  address: string;
-  city: string;
-  zipCode: string;
+  password?: string;
+  firstName?: string;
+  lastName?: string;
+  dateOfBirth?: string;
+  address?: string;
+  city?: string;
+  zipCode?: string;
   insurance?: string;
-  emergencyContact: string;
-  emergencyPhone: string;
+  emergencyContact?: string;
+  emergencyPhone?: string;
   medicalHistory?: string;
   allergies?: string;
   notes?: string;

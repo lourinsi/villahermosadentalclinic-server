@@ -3,6 +3,7 @@
 // Run with: npm run seed
 
 import { Patient } from "./types/patient";
+import bcrypt from "bcryptjs";
 import { Appointment } from "./types/appointment";
 import { Staff } from "./types/staff";
 import { InventoryItem } from "./types/inventory";
@@ -266,6 +267,31 @@ function generatePatients(count: number = 25): Omit<Patient, "id" | "createdAt" 
   const now = new Date();
   const oneYearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
 
+  // Add a specific patient for testing
+  const testPatient: Omit<Patient, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt"> = {
+    name: "Test Patient",
+    firstName: "Test",
+    lastName: "Patient",
+    email: "test@patient.com",
+    phone: "09915341237",
+    password: bcrypt.hashSync("villahermosa123", 10),
+    dateOfBirth: "1990-01-01",
+    address: "123 Test St",
+    city: "Testville",
+    zipCode: "12345",
+    insurance: "None",
+    status: "active",
+    emergencyContact: "Test Emergency",
+    emergencyPhone: "0987654321",
+    allergies: "None",
+    medicalHistory: "None",
+    notes: "This is a test patient.",
+    dentalCharts: [],
+    lastVisit: undefined,
+  };
+  generatedPatients.push(testPatient);
+
+
   for (let i = 0; i < count; i++) {
     const firstName = getRandomElement(firstNames);
     const lastName = getRandomElement(lastNames);
@@ -280,10 +306,12 @@ function generatePatients(count: number = 25): Omit<Patient, "id" | "createdAt" 
     const dentalCharts = generateDentalCharts(lastVisitDate);
 
     const patient: Omit<Patient, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt"> = {
+      name: `${firstName} ${lastName}`,
       firstName,
       lastName,
       email,
       phone,
+      password: bcrypt.hashSync("villahermosa123", 10),
       dateOfBirth: dateOfBirth.toISOString().split("T")[0],
       address: `${getRandomInt(100, 9999)} ${getRandomElement(["Main", "Oak", "Elm", "Maple", "Pine", "Cedar"])} St, ${getRandomElement(["Springfield", "Shelbyville", "Capital City", "Metropolis", "Gotham"])}`,
       city: getRandomElement(["Springfield", "Shelbyville", "Capital City", "Metropolis", "Gotham"]),

@@ -72,11 +72,20 @@ export const getAllStaff = (
 ) => {
   try {
     const staffMembers = readData<Staff>(STAFF_COLLECTION);
-    const { page = "1", limit = "20" } = req.query as Record<string, string>;
+    const { page = "1", limit = "20", role } = req.query as Record<
+      string,
+      string
+    >;
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.max(1, parseInt(limit, 10) || 20);
 
-    const activeStaff = staffMembers.filter((staff) => !staff.deleted);
+    let activeStaff = staffMembers.filter((staff) => !staff.deleted);
+
+    if (role) {
+      const rolesToFilter = role.split(',').map(r => r.trim().toLowerCase());
+      activeStaff = activeStaff.filter(staff => rolesToFilter.includes(staff.role.toLowerCase()));
+    }
+
     const total = activeStaff.length;
     const totalPages = Math.max(1, Math.ceil(total / limitNum));
     const start = (pageNum - 1) * limitNum;
