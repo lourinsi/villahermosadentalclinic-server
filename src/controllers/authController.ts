@@ -76,12 +76,15 @@ export const register = async (
     const defaultPassword = password || "villahermosa123";
     const passwordHash = password ? await bcrypt.hash(password, 10) : PATIENT_PASSWORD_HASH;
 
+    const newPatientId = `PATIENT-${Date.now()}`;
     const newPatient: Patient = {
-      id: `PATIENT-${Date.now()}`,
+      id: newPatientId,
       name: name || email || phone,
       email: email || "",
       phone: phone || "",
       password: passwordHash,
+      parentId: newPatientId, // Point to itself as primary
+      isPrimary: true,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -241,16 +244,28 @@ export const login = async (
 
     // Check if it's a doctor (staff member with role containing "Dentist" or "Doctor")
     const staffMembers = readData<Staff>(STAFF_COLLECTION);
+    console.log(`[AUTH] Checking ${staffMembers.length} staff members for doctor login`);
+    
     const doctor = staffMembers.find(
-      (staff) =>
-        staff.name.toLowerCase() === username.toLowerCase() &&
-        (staff.role === "Doctor" || staff.role.toLowerCase().includes("dentist")) &&
-        !staff.deleted
+      (staff) => {
+        const nameMatch = staff.name.toLowerCase() === username.toLowerCase();
+        const emailMatch = staff.email?.toLowerCase() === username.toLowerCase();
+        const isDoctorRole = staff.role === "Doctor" || staff.role.toLowerCase().includes("dentist");
+        const notDeleted = !staff.deleted;
+        
+        if ((nameMatch || emailMatch) && isDoctorRole && notDeleted) {
+          console.log(`[AUTH] Found matching doctor: ${staff.name} (${staff.role})`);
+          return true;
+        }
+        return false;
+      }
     );
 
     if (doctor) {
-      // For doctors, check against default password (or staff-specific password in future)
-      const isPasswordValid = await bcrypt.compare(password, DOCTOR_PASSWORD_HASH);
+      // For doctors, check against their stored password or default password
+      const isPasswordValid = doctor.password 
+        ? await bcrypt.compare(password, doctor.password)
+        : await bcrypt.compare(password, DOCTOR_PASSWORD_HASH);
 
       if (!isPasswordValid) {
         console.log("[AUTH] Invalid password for doctor:", username);

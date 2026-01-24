@@ -73,11 +73,6 @@ const statuses = ["active", "inactive", "overdue"];
 
 const insurances = ["Blue Cross", "Aetna", "Delta Dental", "Cigna", "United Healthcare", "None"];
 
-const staffRoles = ["Lead Dentist", "Associate Dentist", "Pediatric Dentist", "Dental Hygienist", "Dental Assistant", "Office Manager", "Receptionist"];
-const departments = ["Dentistry", "Hygiene", "Assistance", "Administration"];
-const employmentTypes = ["Full-time", "Part-time", "Contract"];
-const specializations = ["General Dentistry", "Orthodontics", "Pediatric Dentistry", "Dental Hygiene", "Chair-side Assistance", "Office Management", "Patient Relations"];
-
 const inventoryItemsData: Omit<InventoryItem, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] = [
   { item: "Dental Anesthetic (Lidocaine)", quantity: 45, unit: "vials", costPerUnit: 12.50, totalValue: 562.50, supplier: "DentMed Supply", lastOrdered: "2024-01-15" },
   { item: "Composite Filling Material", quantity: 12, unit: "tubes", costPerUnit: 85.00, totalValue: 1020.00, supplier: "3M Dental", lastOrdered: "2024-01-10" },
@@ -91,6 +86,22 @@ const inventoryItemsData: Omit<InventoryItem, "id" | "createdAt" | "updatedAt" |
 
 const staffMembersData: Omit<Staff, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] = [
   {
+    name: "Dr. Test Doctor",
+    role: "Lead Dentist",
+    department: "Dentistry",
+    email: "test.doctor@villahermosa.com",
+    phone: "+1 (555) 000-0000",
+    hireDate: "2024-01-01",
+    baseSalary: 15000,
+    status: "active",
+    employmentType: "Full-time",
+    specialization: "General Dentistry",
+    licenseNumber: "DDS-00000",
+    password: bcrypt.hashSync("doctor123", 10),
+    profilePicture: "https://images.unsplash.com/photo-1622253692010-333f2da6031d?q=80&w=200&h=200&auto=format&fit=crop",
+    bio: "Test doctor for system validation."
+  },
+  {
     name: "Dr. Sarah Johnson",
     role: "Lead Dentist",
     department: "Dentistry",
@@ -101,7 +112,10 @@ const staffMembersData: Omit<Staff, "id" | "createdAt" | "updatedAt" | "deleted"
     status: "active",
     employmentType: "Full-time",
     specialization: "General Dentistry",
-    licenseNumber: "DDS-12345"
+    licenseNumber: "DDS-12345",
+    password: bcrypt.hashSync("doctor123", 10),
+    profilePicture: "https://images.unsplash.com/photo-1559839734-2b71ea197ec2?q=80&w=200&h=200&auto=format&fit=crop",
+    bio: "Dr. Villahermosa has over 15 years of experience in general dentistry, focusing on preventive care and patient education."
   },
   {
     name: "Dr. Michael Chen",
@@ -114,7 +128,10 @@ const staffMembersData: Omit<Staff, "id" | "createdAt" | "updatedAt" | "deleted"
     status: "active",
     employmentType: "Full-time",
     specialization: "Orthodontics",
-    licenseNumber: "DDS-23456"
+    licenseNumber: "DDS-23456",
+    password: bcrypt.hashSync("doctor123", 10),
+    profilePicture: "https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?q=80&w=200&h=200&auto=format&fit=crop",
+    bio: "Dr. Chen specializes in orthodontics and is passionate about creating beautiful smiles using the latest technology."
   },
   {
     name: "Dr. Emily Rodriguez",
@@ -127,7 +144,10 @@ const staffMembersData: Omit<Staff, "id" | "createdAt" | "updatedAt" | "deleted"
     status: "active",
     employmentType: "Full-time",
     specialization: "Pediatric Dentistry",
-    licenseNumber: "DDS-34567"
+    licenseNumber: "DDS-34567",
+    password: bcrypt.hashSync("doctor123", 10),
+    profilePicture: "https://images.unsplash.com/photo-1594824476967-48c8b964273f?q=80&w=200&h=200&auto=format&fit=crop",
+    bio: "Dr. Rodriguez loves working with children and aims to provide a comfortable and fun dental experience for her young patients."
   },
   {
     name: "Jessica Williams",
@@ -140,7 +160,8 @@ const staffMembersData: Omit<Staff, "id" | "createdAt" | "updatedAt" | "deleted"
     status: "active",
     employmentType: "Full-time",
     specialization: "Dental Hygiene",
-    licenseNumber: "RDH-45678"
+    licenseNumber: "RDH-45678",
+    password: bcrypt.hashSync("doctor123", 10)
   },
   {
     name: "Mark Thompson",
@@ -153,7 +174,8 @@ const staffMembersData: Omit<Staff, "id" | "createdAt" | "updatedAt" | "deleted"
     status: "active",
     employmentType: "Full-time",
     specialization: "Chair-side Assistance",
-    licenseNumber: "DA-56789"
+    licenseNumber: "DA-56789",
+    password: bcrypt.hashSync("doctor123", 10)
   },
   {
     name: "Lisa Martinez",
@@ -166,7 +188,8 @@ const staffMembersData: Omit<Staff, "id" | "createdAt" | "updatedAt" | "deleted"
     status: "active",
     employmentType: "Full-time",
     specialization: "Office Management",
-    licenseNumber: "N/A"
+    licenseNumber: "N/A",
+    password: bcrypt.hashSync("doctor123", 10)
   },
   {
     name: "Robert Davis",
@@ -179,7 +202,8 @@ const staffMembersData: Omit<Staff, "id" | "createdAt" | "updatedAt" | "deleted"
     status: "active",
     employmentType: "Part-time",
     specialization: "Patient Relations",
-    licenseNumber: "N/A"
+    licenseNumber: "N/A",
+    password: bcrypt.hashSync("doctor123", 10)
   }
 ];
 
@@ -286,6 +310,7 @@ function generatePatients(count: number = 25): Omit<Patient, "id" | "createdAt" 
     allergies: "None",
     medicalHistory: "None",
     notes: "This is a test patient.",
+    isPrimary: true,
     dentalCharts: [],
     lastVisit: undefined,
   };
@@ -312,6 +337,7 @@ function generatePatients(count: number = 25): Omit<Patient, "id" | "createdAt" 
       email,
       phone,
       password: bcrypt.hashSync("villahermosa123", 10),
+      isPrimary: true,
       dateOfBirth: dateOfBirth.toISOString().split("T")[0],
       address: `${getRandomInt(100, 9999)} ${getRandomElement(["Main", "Oak", "Elm", "Maple", "Pine", "Cedar"])} St, ${getRandomElement(["Springfield", "Shelbyville", "Capital City", "Metropolis", "Gotham"])}`,
       city: getRandomElement(["Springfield", "Shelbyville", "Capital City", "Metropolis", "Gotham"]),
@@ -331,6 +357,50 @@ function generatePatients(count: number = 25): Omit<Patient, "id" | "createdAt" 
   }
 
   return generatedPatients;
+}
+
+function generateDependents(parent: Patient, count: number): Omit<Patient, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] {
+  const dependents: Omit<Patient, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] = [];
+  const now = new Date();
+  const oneYearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+
+  for (let i = 0; i < count; i++) {
+    const firstName = getRandomElement(firstNames);
+    const lastName = parent.lastName || getRandomElement(lastNames);
+    const relationship = getRandomElement(["Spouse", "Child", "Parent", "Sibling"]);
+    const dateOfBirth = new Date(getRandomInt(1970, 2020), getRandomInt(0, 11), getRandomInt(1, 28));
+    
+    const hasLastVisit = Math.random() > 0.5;
+    const randomVisitDate = getRandomDate(oneYearAgo, now);
+    const lastVisitDate = hasLastVisit ? `${randomVisitDate.getFullYear()}-${(randomVisitDate.getMonth() + 1).toString().padStart(2, '0')}-${randomVisitDate.getDate().toString().padStart(2, '0')}` : undefined;
+    
+    const dentalCharts = generateDentalCharts(lastVisitDate);
+
+    dependents.push({
+      name: `${firstName} ${lastName}`,
+      firstName,
+      lastName,
+      email: parent.email, // Inherited
+      phone: parent.phone, // Inherited
+      parentId: parent.id,
+      isPrimary: false,
+      relationship,
+      dateOfBirth: dateOfBirth.toISOString().split("T")[0],
+      address: parent.address,
+      city: parent.city,
+      zipCode: parent.zipCode,
+      insurance: parent.insurance,
+      status: "active",
+      emergencyContact: parent.name,
+      emergencyPhone: parent.phone,
+      allergies: Math.random() > 0.8 ? getRandomElement(["Penicillin", "Latex", "Iodine", "None"]) : "None",
+      medicalHistory: "None",
+      notes: `Dependent of ${parent.name}`,
+      dentalCharts: dentalCharts,
+      lastVisit: lastVisitDate,
+    });
+  }
+  return dependents;
 }
 
 function generateAppointments(patientsList: Patient[], doctorsList: string[], count: number = 60): Omit<Appointment, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] {
@@ -452,7 +522,51 @@ async function seedDatabase() {
         console.error(`❌ Error adding patient: ${err}`);
       }
     }
-    console.log(`✅ All patients added. Total: ${createdPatients.length}\n`);
+    console.log(`✅ All primary patients added. Total: ${createdPatients.length}\n`);
+
+    // --- Seed Dependents ---
+    console.log("👪 Generating and seeding dependents...");
+    const dependentsToCreate: Omit<Patient, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] = [];
+    
+    // Pick 40% of patients to have dependents
+    const parents = createdPatients.filter(() => Math.random() > 0.6);
+    // Always give test patient some dependents
+    const testPatient = createdPatients.find(p => p.email === "test@patient.com");
+    if (testPatient && !parents.includes(testPatient)) {
+      parents.push(testPatient);
+    }
+
+    for (const parent of parents) {
+      const isTestPatient = parent.email === "test@patient.com";
+      const familyCount = isTestPatient ? 3 : getRandomInt(1, 3);
+      const parentDependents = generateDependents(parent, familyCount);
+      dependentsToCreate.push(...parentDependents);
+    }
+
+    console.log(`📤 Adding ${dependentsToCreate.length} dependents to database via API...`);
+    for (const dependentData of dependentsToCreate) {
+      try {
+        const response = await fetch("http://localhost:3001/api/patients", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(dependentData),
+        });
+
+        if (!response.ok) {
+          console.error(`❌ Failed to add dependent ${dependentData.firstName} ${dependentData.lastName}`);
+        } else {
+          const apiResponse = await response.json();
+          if (apiResponse.success && apiResponse.data) {
+            createdPatients.push(apiResponse.data);
+          }
+        }
+      } catch (err) {
+        console.error(`❌ Error adding dependent: ${err}`);
+      }
+    }
+    console.log(`✅ All dependents added. Total patients now: ${createdPatients.length}\n`);
 
     // Generate appointments
     const generatedAppointmentsData = generateAppointments(createdPatients, doctorNames, 60);

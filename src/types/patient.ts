@@ -16,6 +16,10 @@ export interface Patient {
   medicalHistory?: string;
   allergies?: string;
   notes?: string;
+  profilePicture?: string;
+  parentId?: string;
+  isPrimary?: boolean;
+  relationship?: string;
   dentalCharts?: { date: string; data: string; isEmpty: boolean }[];
   status?: "active" | "overdue" | "inactive" | string;
   lastVisit?: string;

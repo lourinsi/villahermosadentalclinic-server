@@ -8,6 +8,41 @@ import { Patient } from "../types/patient";
 
 const COLLECTION = "appointments";
 
+/**
+ * Checks for appointment conflicts for a specific doctor
+ */
+const hasConflict = (
+  appointments: Appointment[],
+  newDate: string,
+  newTime: string,
+  newDuration: number,
+  doctor: string,
+  excludeId?: string
+): boolean => {
+  const timeToMinutes = (timeStr: string): number => {
+    if (!timeStr) return 0;
+    const [hours, minutes] = timeStr.split(":").map(Number);
+    return (hours || 0) * 60 + (minutes || 0);
+  };
+
+  const newStart = timeToMinutes(newTime);
+  const duration = Number(newDuration) || 60;
+  const newEnd = newStart + duration;
+
+  return appointments.some((apt) => {
+    if (apt.deleted || apt.id === excludeId || apt.date !== newDate || apt.status === "cancelled") {
+      return false;
+    }
+
+    const aptStart = timeToMinutes(apt.time);
+    const aptDuration = Number(apt.duration) || 60;
+    const aptEnd = aptStart + aptDuration;
+
+    // Overlap condition: (newStart < aptEnd) && (newEnd > aptStart)
+    return newStart < aptEnd && newEnd > aptStart;
+  });
+};
+
 export const addAppointment = (req: Request, res: Response<ApiResponse<Appointment>>) => {
   try {
     const appointments = readData<Appointment>(COLLECTION);
@@ -27,6 +62,20 @@ export const addAppointment = (req: Request, res: Response<ApiResponse<Appointme
       return res.status(400).json({
         success: false,
         message: "Missing required fields: patientId, patientName, date, time, type",
+      });
+    }
+
+    // Check for conflicts
+    if (hasConflict(
+      appointments, 
+      appointmentData.date, 
+      appointmentData.time, 
+      appointmentData.duration || 60, 
+      appointmentData.doctor || ""
+    )) {
+      return res.status(409).json({
+        success: false,
+        message: "Conflict detected: There is already an appointment scheduled during this time.",
       });
     }
 
@@ -87,10 +136,24 @@ export const getAppointments = (
 ) => {
   try {
     const appointments = readData<Appointment>(COLLECTION);
-    const { startDate, endDate, search, doctor, type, status, patientId } = req.query as Record<string, string>;
+    const { startDate, endDate, search, doctor, type, status, patientId, parentId, anonymize } = req.query as Record<string, string>;
     
     // return only non-deleted appointments
     let filtered = appointments.filter(a => !a.deleted);
+
+    const isGlobal = anonymize === 'true';
+
+    // If parentId is provided, get all patients for that parent first
+    if (parentId && !isGlobal) {
+      const patients = readData<Patient>("patients");
+      const familyIds = patients
+        .filter(p => (p.parentId === parentId || p.id === parentId) && !p.deleted)
+        .map(p => p.id);
+      
+      filtered = filtered.filter(a => familyIds.includes(a.patientId));
+    } else if (patientId && !isGlobal) {
+      filtered = filtered.filter(a => a.patientId === patientId);
+    }
 
     // If search term is provided, prioritize searching (global search)
     if (search && search.trim() !== "") {
@@ -114,14 +177,26 @@ export const getAppointments = (
     if (doctor && doctor !== 'all') {
       filtered = filtered.filter(a => a.doctor === doctor);
     }
-    if (patientId) {
-      filtered = filtered.filter(a => a.patientId === patientId);
-    }
     if (type && type !== 'all') {
       filtered = filtered.filter(a => a.type === parseInt(type, 10));
     }
     if (status && status !== 'all') {
       filtered = filtered.filter(a => a.status === status);
+    }
+
+    if (isGlobal) {
+      filtered = filtered.map(a => ({
+        ...a,
+        patientName: 'Occupied',
+        patientId: 'Occupied',
+        notes: '',
+        email: '',
+        phone: '',
+        price: 0,
+        balance: 0,
+        totalPaid: 0,
+        customType: a.type === APPOINTMENT_TYPES.length - 1 ? 'Other' : ''
+      }));
     }
 
     res.json({
@@ -194,6 +269,28 @@ export const updateAppointment = (
       updatedAt: new Date(),
     };
 
+    // Check for conflicts if date, time, duration, or doctor changed
+    if (
+      updates.date || 
+      updates.time || 
+      updates.duration !== undefined || 
+      updates.doctor
+    ) {
+      if (hasConflict(
+        appointments,
+        updatedAppointment.date,
+        updatedAppointment.time,
+        updatedAppointment.duration || 60,
+        updatedAppointment.doctor || "",
+        id
+      )) {
+        return res.status(409).json({
+          success: false,
+          message: "Conflict detected: There is already an appointment scheduled during this time.",
+        });
+      }
+    }
+
     appointments[appointmentIndex] = updatedAppointment;
     writeData(COLLECTION, appointments);
 
@@ -257,7 +354,7 @@ export const bookPublicAppointment = async (req: Request, res: Response<ApiRespo
   try {
     const appointments = readData<Appointment>(COLLECTION);
     const patients = readData<Patient>("patients");
-    const { firstName, lastName, email, phone, date, time, type, customType, doctor, notes } = req.body;
+    const { firstName, lastName, email, phone, date, time, duration, type, customType, doctor, notes, patientId } = req.body;
 
     // Basic validation
     if (!firstName || !lastName || !phone || !date || !time || type == null) {
@@ -267,8 +364,8 @@ export const bookPublicAppointment = async (req: Request, res: Response<ApiRespo
       });
     }
 
-    // Search for existing patient by phone or email
-    let patient = patients.find(p => p.phone === phone || (email && p.email === email));
+    // Search for existing patient by ID, phone or email
+    let patient = patientId ? patients.find(p => p.id === patientId) : patients.find(p => p.phone === phone || (email && p.email === email));
 
     if (!patient) {
       // Default password for new patients created via booking
@@ -301,6 +398,20 @@ export const bookPublicAppointment = async (req: Request, res: Response<ApiRespo
       console.log("[PUBLIC BOOKING] Found existing patient:", patient.id);
     }
 
+    // Check for conflicts
+    if (hasConflict(
+      appointments,
+      date,
+      time,
+      duration || 30, // Use provided duration or default to 30
+      doctor || ""
+    )) {
+      return res.status(409).json({
+        success: false,
+        message: "The selected time is no longer available. Please choose another time.",
+      });
+    }
+
     // Create appointment
     const newAppointment: Appointment = {
       id: `apt_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
@@ -308,6 +419,7 @@ export const bookPublicAppointment = async (req: Request, res: Response<ApiRespo
       patientName: `${patient.firstName} ${patient.lastName}`,
       date,
       time,
+      duration: duration || 30,
       type,
       customType: customType || "",
       doctor: doctor || "",

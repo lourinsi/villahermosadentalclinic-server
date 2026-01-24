@@ -11,6 +11,9 @@ export interface Staff {
   employmentType: string;
   specialization: string;
   licenseNumber: string;
+  password?: string;
+  profilePicture?: string;
+  bio?: string;
   createdAt?: Date;
   updatedAt?: Date;
   deleted?: boolean;

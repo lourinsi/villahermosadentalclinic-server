@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   addPatient,
+  addDependent,
   getPatients,
   getPatientById,
   updatePatient,
@@ -12,6 +13,9 @@ const router = Router();
 
 // POST - Add new patient
 router.post("/", addPatient);
+
+// POST - Add dependent patient
+router.post("/dependent", addDependent);
 
 // GET - Get all patients
 router.get("/", getPatients);

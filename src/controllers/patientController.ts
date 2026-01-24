@@ -1,9 +1,11 @@
 import { Request, Response } from "express";
 import bcrypt from "bcryptjs";
 import { Patient, ApiResponse } from "../types/patient";
+import { Appointment } from "../types/appointment";
 import { readData, writeData } from "../utils/storage";
 
 const COLLECTION = "patients";
+const APPOINTMENT_COLLECTION = "appointments";
 
 export const addPatient = async (req: Request, res: Response<ApiResponse<Patient>>) => {
   try {
@@ -27,9 +29,12 @@ export const addPatient = async (req: Request, res: Response<ApiResponse<Patient
       ? patientData.password
       : await bcrypt.hash("villahermosa123", 10);
 
+    const newPatientId = `patient_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    const isPrimary = patientData.isPrimary !== undefined ? patientData.isPrimary : (patientData.parentId ? false : true);
+
     // Create patient object with ID and timestamps
     const newPatient: Patient = {
-      id: `patient_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      id: newPatientId,
       name: `${patientData.firstName || ""} ${patientData.lastName || ""}`.trim(),
       firstName: patientData.firstName || "",
       lastName: patientData.lastName || "",
@@ -47,6 +52,8 @@ export const addPatient = async (req: Request, res: Response<ApiResponse<Patient
       medicalHistory: patientData.medicalHistory || "",
       allergies: patientData.allergies || "",
       notes: patientData.notes || "",
+      parentId: patientData.parentId || (isPrimary ? newPatientId : undefined),
+      isPrimary: isPrimary,
       dentalCharts: patientData.dentalCharts || [],
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -75,6 +82,67 @@ export const addPatient = async (req: Request, res: Response<ApiResponse<Patient
   }
 };
 
+export const addDependent = async (req: Request, res: Response<ApiResponse<Patient>>) => {
+  try {
+    const patients = readData<Patient>(COLLECTION);
+    const { parentId, firstName, lastName, relationship, dateOfBirth, medicalHistory, allergies } = req.body;
+
+    if (!parentId || !firstName || !lastName) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing required fields: parentId, firstName, lastName",
+      });
+    }
+
+    const parent = patients.find(p => p.id === parentId);
+    if (!parent) {
+      return res.status(404).json({
+        success: false,
+        message: "Parent patient not found",
+      });
+    }
+
+    const newPatient: Patient = {
+      id: `patient_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      name: `${firstName} ${lastName}`.trim(),
+      firstName,
+      lastName,
+      email: parent.email,
+      phone: parent.phone,
+      parentId,
+      isPrimary: false,
+      relationship: relationship || "Family Member",
+      dateOfBirth: dateOfBirth || "",
+      address: parent.address || "",
+      city: parent.city || "",
+      zipCode: parent.zipCode || "",
+      insurance: parent.insurance || "",
+      medicalHistory: medicalHistory || "",
+      allergies: allergies || "",
+      status: "active",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deleted: false,
+    };
+
+    patients.push(newPatient);
+    writeData(COLLECTION, patients);
+
+    res.status(201).json({
+      success: true,
+      message: "Dependent patient added successfully",
+      data: newPatient,
+    });
+  } catch (error) {
+    console.error("[ADD DEPENDENT] ERROR:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error adding dependent",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
+
 export const getPatients = (
   req: Request,
   res: Response<ApiResponse<Patient[]>>
@@ -82,12 +150,29 @@ export const getPatients = (
   try {
     const patients = readData<Patient>(COLLECTION);
     // server-side filtering + pagination
-    const { page = "1", limit = "10", search = "", status = "all" } = req.query as Record<string, string>;
+    const { page = "1", limit = "10", search = "", status = "all", parentId = "", doctor = "" } = req.query as Record<string, string>;
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.max(1, parseInt(limit, 10) || 10);
 
     // only return non-deleted patients
     let active = patients.filter(p => !p.deleted);
+
+    // filter by doctor if provided (only if not searching, or we can make search global)
+    if (doctor && !search) {
+      const appointments = readData<Appointment>(APPOINTMENT_COLLECTION);
+      const doctorLower = doctor.toLowerCase();
+      const doctorPatientIds = new Set(
+        appointments
+          .filter(a => a.doctor.toLowerCase() === doctorLower && !a.deleted)
+          .map(a => a.patientId)
+      );
+      active = active.filter(p => doctorPatientIds.has(p.id || ""));
+    }
+
+    // filter by parentId if provided
+    if (parentId) {
+      active = active.filter(p => p.parentId === parentId);
+    }
 
     // simple search across firstName, lastName, email, phone
     if (search && search.trim().length > 0) {
