@@ -269,7 +269,7 @@ function generateDentalCharts(patientLastVisit?: string): { date: string; data: 
     }
 
     const chartCount = getRandomInt(1, 3);
-    let lastDate = patientLastVisit ? new Date(patientLastVisit) : new Date();
+    const lastDate = patientLastVisit ? new Date(patientLastVisit) : new Date();
     if (!patientLastVisit) {
         lastDate.setFullYear(lastDate.getFullYear() - getRandomInt(0, 2));
     }

@@ -57,6 +57,12 @@ export const createPayment = (req: Request, res: Response<ApiResponse<any>>) => 
       if (apt.balance <= 0) apt.paymentStatus = 'paid';
       else if (apt.totalPaid === 0) apt.paymentStatus = 'unpaid';
       else apt.paymentStatus = apt.balance < (apt.price || 0) ? 'half-paid' : 'unpaid';
+      
+      // Automatically schedule the appointment if it was pending
+      if (apt.status === 'pending') {
+        apt.status = 'scheduled';
+      }
+
       apt.updatedAt = new Date();
       appointments[idx] = apt;
       writeData('appointments', appointments);

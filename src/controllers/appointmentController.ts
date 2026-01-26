@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import bcrypt from "bcryptjs";
 import { Appointment, ApiResponse } from "../types/appointment";
-import { APPOINTMENT_TYPES, getAppointmentTypeName } from "../utils/appointment-types";
+import { APPOINTMENT_TYPES, getAppointmentTypeName, getAppointmentPrice } from "../utils/appointment-types";
 import { readData, writeData } from "../utils/storage";
 import { FinanceRecord } from "../types/finance";
 import { Patient } from "../types/patient";
@@ -89,6 +89,8 @@ export const addAppointment = (req: Request, res: Response<ApiResponse<Appointme
 
     console.log("[APPOINTMENT CREATE] Creating appointment for patient:", appointmentData.patientName);
 
+    const basePrice = getAppointmentPrice(appointmentData.type);
+
     // Create appointment object with ID and timestamps
     const newAppointment: Appointment = {
       id: `apt_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
@@ -98,13 +100,13 @@ export const addAppointment = (req: Request, res: Response<ApiResponse<Appointme
       time: appointmentData.time,
       type: appointmentData.type,
       customType: appointmentData.customType || "",
-      price: appointmentData.price || 0, // Default to 0 if not provided
+      price: appointmentData.price || basePrice,
       doctor: appointmentData.doctor || "",
       duration: appointmentData.duration || 60, // default to 60 minutes
       notes: appointmentData.notes || "",
       status: appointmentData.status || "scheduled",
       paymentStatus: appointmentData.paymentStatus || "unpaid",
-      balance: appointmentData.balance != null ? appointmentData.balance : (appointmentData.price || 0),
+      balance: appointmentData.balance != null ? appointmentData.balance : (appointmentData.price || basePrice),
       createdAt: new Date(),
       updatedAt: new Date(),
       deleted: false,
@@ -354,7 +356,7 @@ export const bookPublicAppointment = async (req: Request, res: Response<ApiRespo
   try {
     const appointments = readData<Appointment>(COLLECTION);
     const patients = readData<Patient>("patients");
-    const { firstName, lastName, email, phone, date, time, duration, type, customType, doctor, notes, patientId } = req.body;
+    const { firstName, lastName, email, phone, date, time, duration, type, customType, doctor, notes, patientId, serviceType } = req.body;
 
     // Basic validation
     if (!firstName || !lastName || !phone || !date || !time || type == null) {
@@ -412,6 +414,8 @@ export const bookPublicAppointment = async (req: Request, res: Response<ApiRespo
       });
     }
 
+    const basePrice = getAppointmentPrice(type);
+
     // Create appointment
     const newAppointment: Appointment = {
       id: `apt_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
@@ -422,10 +426,13 @@ export const bookPublicAppointment = async (req: Request, res: Response<ApiRespo
       duration: duration || 30,
       type,
       customType: customType || "",
+      price: basePrice,
       doctor: doctor || "",
       notes: notes || "",
+      serviceType: serviceType || "",
       status: "pending", // Public bookings are pending by default
       paymentStatus: "unpaid",
+      balance: basePrice,
       createdAt: new Date(),
       updatedAt: new Date(),
       deleted: false,

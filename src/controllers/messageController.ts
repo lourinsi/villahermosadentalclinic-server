@@ -46,7 +46,7 @@ export const sendMessage = async (req: Request, res: Response) => {
 
     // SMS logic (Twilio) - Not yet configured for Philippines
     // TODO: Configure SMS provider for PH numbers when ready
-    let smsStatus = "Not configured";
+    const smsStatus = "Not configured";
     console.log(`[MESSAGE] SMS skipped - Not yet configured for Philippines`);
 
     if (!emailSent) {

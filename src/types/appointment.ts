@@ -10,6 +10,7 @@ export interface Appointment {
   doctor: string;
   duration?: number; // in minutes
   notes?: string;
+  serviceType?: string;
   status?: "scheduled" | "confirmed" | "pending" | "tentative" | "completed" | "cancelled";
   paymentStatus?: "paid" | "unpaid" | "overdue" | "half-paid" | "over-paid";
   balance?: number;
