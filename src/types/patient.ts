@@ -3,6 +3,8 @@ export interface Patient {
   name: string;
   email: string;
   phone: string;
+  alternateEmail?: string;
+  alternatePhone?: string;
   password?: string;
   firstName?: string;
   lastName?: string;

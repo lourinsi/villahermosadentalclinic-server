@@ -30,7 +30,7 @@ const hasConflict = (
   const newEnd = newStart + duration;
 
   return appointments.some((apt) => {
-    if (apt.deleted || apt.id === excludeId || apt.date !== newDate || apt.status === "cancelled") {
+    if (apt.deleted || apt.id === excludeId || apt.date !== newDate || apt.status === "cancelled" || apt.paymentStatus === "unpaid") {
       return false;
     }
 

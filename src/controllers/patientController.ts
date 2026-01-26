@@ -40,6 +40,8 @@ export const addPatient = async (req: Request, res: Response<ApiResponse<Patient
       lastName: patientData.lastName || "",
       email: patientData.email || "",
       phone: patientData.phone || "",
+      alternateEmail: patientData.alternateEmail || "",
+      alternatePhone: patientData.alternatePhone || "",
       password: passwordHash,
       dateOfBirth: patientData.dateOfBirth || "",
       address: patientData.address || "",
@@ -85,7 +87,7 @@ export const addPatient = async (req: Request, res: Response<ApiResponse<Patient
 export const addDependent = async (req: Request, res: Response<ApiResponse<Patient>>) => {
   try {
     const patients = readData<Patient>(COLLECTION);
-    const { parentId, firstName, lastName, relationship, dateOfBirth, medicalHistory, allergies } = req.body;
+    const { parentId, firstName, lastName, relationship, dateOfBirth, medicalHistory, allergies, alternateEmail, alternatePhone } = req.body;
 
     if (!parentId || !firstName || !lastName) {
       return res.status(400).json({
@@ -109,6 +111,8 @@ export const addDependent = async (req: Request, res: Response<ApiResponse<Patie
       lastName,
       email: parent.email,
       phone: parent.phone,
+      alternateEmail: alternateEmail || "",
+      alternatePhone: alternatePhone || "",
       parentId,
       isPrimary: false,
       relationship: relationship || "Family Member",
