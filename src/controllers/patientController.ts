@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { Patient, ApiResponse } from "../types/patient";
 import { Appointment } from "../types/appointment";
 import { readData, writeData } from "../utils/storage";
+import { createNotification, notifyAdmin } from "../utils/notifications";
 
 const COLLECTION = "patients";
 const APPOINTMENT_COLLECTION = "appointments";
@@ -66,6 +67,21 @@ export const addPatient = async (req: Request, res: Response<ApiResponse<Patient
     patients.push(newPatient);
     writeData(COLLECTION, patients);
     console.log("[PATIENT CREATE] Patient saved. Total patients:", patients.length);
+
+    // Notify Admin
+    notifyAdmin(
+      "New Patient Registration",
+      `A new patient, ${newPatient.firstName} ${newPatient.lastName}, has registered.`,
+      "system"
+    );
+
+    // Notify Patient
+    createNotification(
+      newPatientId,
+      "Welcome to Villahermosa Dental Clinic",
+      "Thank you for registering with us. We look forward to serving you!",
+      "system"
+    );
 
     const { password, ...patientForResponse } = newPatient;
 
@@ -131,6 +147,14 @@ export const addDependent = async (req: Request, res: Response<ApiResponse<Patie
 
     patients.push(newPatient);
     writeData(COLLECTION, patients);
+
+    // Notify Parent
+    createNotification(
+      parentId,
+      "Dependent Added",
+      `${firstName} ${lastName} has been added as a dependent to your account.`,
+      "system"
+    );
 
     res.status(201).json({
       success: true,

@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import nodemailer from "nodemailer";
+import { createNotification } from "../utils/notifications";
 // import twilio from "twilio"; // Uncomment when SMS is configured
 
 export const sendMessage = async (req: Request, res: Response) => {
@@ -42,6 +43,16 @@ export const sendMessage = async (req: Request, res: Response) => {
       } catch (emailErr) {
         console.error("[MESSAGE] Email failed:", emailErr);
       }
+    }
+
+    // Add Portal Notification
+    if (patientId) {
+      createNotification(
+        patientId,
+        "New Message from Clinic",
+        message.length > 100 ? message.substring(0, 97) + "..." : message,
+        "message"
+      );
     }
 
     // SMS logic (Twilio) - Not yet configured for Philippines

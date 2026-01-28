@@ -50,6 +50,7 @@ import staffRoutes from "./routes/staffRoutes";
 import inventoryRoutes from "./routes/inventoryRoutes";
 import authRoutes from "./routes/authRoutes";
 import messageRoutes from "./routes/messageRoutes";
+import notificationRoutes from "./routes/notificationRoutes";
 import { initializeAuth } from "./controllers/authController";
 
 // Routes
@@ -62,6 +63,7 @@ app.use("/api/inventory", inventoryRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/payment-methods", paymentMethodRoutes);
 app.use("/api/messages", messageRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 // app.get("/users", (req,res)=>{
 //   res.send("Hello World")

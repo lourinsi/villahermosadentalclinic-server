@@ -6,6 +6,7 @@ import {
   ApiResponse,
 } from "../types/staff";
 import { readData, writeData } from "../utils/storage";
+import { createNotification, notifyAdmin } from "../utils/notifications";
 
 interface Attendance extends BaseAttendance {
   id: string;
@@ -50,6 +51,13 @@ export const createStaff = (
     staffMembers.push(newStaff);
     writeData(STAFF_COLLECTION, staffMembers);
     console.log("[STAFF CREATE] Staff member saved. Total staff:", staffMembers.length);
+
+    // Notify Admin
+    notifyAdmin(
+      "New Staff Member Added",
+      `${newStaff.name} has been added to the team as ${newStaff.role}.`,
+      "system"
+    );
 
     res.status(201).json({
       success: true,
@@ -257,6 +265,14 @@ export const createStaffFinancialRecord = (
     staffFinancialRecords.push(newRecord);
     writeData(FINANCIAL_COLLECTION, staffFinancialRecords);
 
+    // Notify Staff Member
+    createNotification(
+      newRecord.staffId,
+      "New Financial Record",
+      `A new ${newRecord.type} record for ₱${newRecord.amount.toLocaleString()} has been created.`,
+      "payment"
+    );
+
     res.status(201).json({
       success: true,
       message: "Staff financial record added successfully",
@@ -390,6 +406,14 @@ export const approveStaffFinancialRecord = (
 
     staffFinancialRecords[recordIndex] = updatedRecord;
     writeData(FINANCIAL_COLLECTION, staffFinancialRecords);
+
+    // Notify Staff Member
+    createNotification(
+      updatedRecord.staffId,
+      "Financial Record Approved",
+      `Your ${updatedRecord.type} record for ₱${updatedRecord.amount.toLocaleString()} has been approved.`,
+      "payment"
+    );
 
     res.json({
       success: true,

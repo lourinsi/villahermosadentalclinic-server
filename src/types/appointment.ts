@@ -11,7 +11,7 @@ export interface Appointment {
   duration?: number; // in minutes
   notes?: string;
   serviceType?: string;
-  status?: "scheduled" | "confirmed" | "pending" | "tentative" | "completed" | "cancelled";
+  status?: "scheduled" | "confirmed" | "pending" | "tentative" | "completed" | "cancelled" | "To Pay";
   paymentStatus?: "paid" | "unpaid" | "overdue" | "half-paid" | "over-paid";
   balance?: number;
   totalPaid?: number;

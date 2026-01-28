@@ -193,10 +193,10 @@ export const login = async (
         return;
       }
 
-      // Link test doctor to Dr. Sarah Johnson
+      // Link test doctor to Dr. Test Doctor
       const staffMembers = readData<Staff>(STAFF_COLLECTION);
       const doctor = staffMembers.find(
-        (staff) => staff.name === "Dr. Sarah Johnson" && !staff.deleted
+        (staff) => staff.name === "Dr. Test Doctor" && !staff.deleted
       );
 
       if (!doctor) {

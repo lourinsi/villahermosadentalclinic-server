@@ -3,45 +3,12 @@ import bcrypt from "bcryptjs";
 import { Appointment, ApiResponse } from "../types/appointment";
 import { APPOINTMENT_TYPES, getAppointmentTypeName, getAppointmentPrice } from "../utils/appointment-types";
 import { readData, writeData } from "../utils/storage";
+import { hasConflict } from "../utils/appointment-helpers";
 import { FinanceRecord } from "../types/finance";
 import { Patient } from "../types/patient";
+import { createNotification, notifyAdmin } from "../utils/notifications";
 
 const COLLECTION = "appointments";
-
-/**
- * Checks for appointment conflicts for a specific doctor
- */
-const hasConflict = (
-  appointments: Appointment[],
-  newDate: string,
-  newTime: string,
-  newDuration: number,
-  doctor: string,
-  excludeId?: string
-): boolean => {
-  const timeToMinutes = (timeStr: string): number => {
-    if (!timeStr) return 0;
-    const [hours, minutes] = timeStr.split(":").map(Number);
-    return (hours || 0) * 60 + (minutes || 0);
-  };
-
-  const newStart = timeToMinutes(newTime);
-  const duration = Number(newDuration) || 60;
-  const newEnd = newStart + duration;
-
-  return appointments.some((apt) => {
-    if (apt.deleted || apt.id === excludeId || apt.date !== newDate || apt.status === "cancelled" || apt.paymentStatus === "unpaid") {
-      return false;
-    }
-
-    const aptStart = timeToMinutes(apt.time);
-    const aptDuration = Number(apt.duration) || 60;
-    const aptEnd = aptStart + aptDuration;
-
-    // Overlap condition: (newStart < aptEnd) && (newEnd > aptStart)
-    return newStart < aptEnd && newEnd > aptStart;
-  });
-};
 
 export const addAppointment = (req: Request, res: Response<ApiResponse<Appointment>>) => {
   try {
@@ -117,6 +84,55 @@ export const addAppointment = (req: Request, res: Response<ApiResponse<Appointme
     writeData(COLLECTION, appointments);
     console.log("[APPOINTMENT CREATE] Appointment saved. Total appointments:", appointments.length);
 
+    // Notify Patient
+    createNotification(
+      newAppointment.patientId,
+      "Appointment Scheduled",
+      `Your appointment for ${getAppointmentTypeName(newAppointment.type, newAppointment.customType)} is scheduled for ${newAppointment.date} at ${newAppointment.time}.`,
+      "appointment",
+      {
+        appointmentId: newAppointment.id,
+        currentStatus: newAppointment.status,
+      }
+    );
+
+    // Notify Admin & Doctor
+    const isRequest = ["pending", "tentative", "To Pay"].includes(newAppointment.status as string);
+    
+    if (newAppointment.paymentStatus !== "unpaid" || isRequest) {
+      notifyAdmin(
+        isRequest ? "New Appointment Request" : "New Appointment Scheduled",
+        `${newAppointment.patientName} has a ${newAppointment.status} appointment for ${getAppointmentTypeName(newAppointment.type, newAppointment.customType)} on ${newAppointment.date} at ${newAppointment.time}.`,
+        "appointment",
+        {
+          appointmentId: newAppointment.id,
+          currentStatus: newAppointment.status,
+          patientName: newAppointment.patientName,
+          isRequest: isRequest
+        }
+      );
+
+      // Also notify the doctor specifically
+      if (newAppointment.doctor) {
+        const staff = readData<any>("staff");
+        const doctor = staff.find((s: any) => s.name === newAppointment.doctor);
+        if (doctor) {
+          createNotification(
+            doctor.id,
+            isRequest ? "New Appointment Request" : "New Appointment Scheduled",
+            `${newAppointment.patientName} has a ${newAppointment.status} appointment for ${getAppointmentTypeName(newAppointment.type, newAppointment.customType)} on ${newAppointment.date} at ${newAppointment.time}.`,
+            "appointment",
+            {
+              appointmentId: newAppointment.id,
+              currentStatus: newAppointment.status,
+              patientName: newAppointment.patientName,
+              isRequest: isRequest
+            }
+          );
+        }
+      }
+    }
+
     res.status(201).json({
       success: true,
       message: "Appointment added successfully",
@@ -138,10 +154,16 @@ export const getAppointments = (
 ) => {
   try {
     const appointments = readData<Appointment>(COLLECTION);
-    const { startDate, endDate, search, doctor, type, status, patientId, parentId, anonymize } = req.query as Record<string, string>;
+    const { startDate, endDate, search, doctor, type, status, patientId, parentId, anonymize, includeUnpaid } = req.query as Record<string, string>;
     
     // return only non-deleted appointments
     let filtered = appointments.filter(a => !a.deleted);
+
+    // Filter for Cart (pending) vs Bookings (non-pending)
+    // Only exclude pending if not specifically requested and not in includeUnpaid mode
+    if (includeUnpaid !== 'true' && status !== 'pending') {
+      filtered = filtered.filter(a => a.status !== 'pending');
+    }
 
     const isGlobal = anonymize === 'true';
 
@@ -167,11 +189,11 @@ export const getAppointments = (
       );
     } else {
       // Otherwise filter by date range if provided
-      if (startDate) {
-        filtered = filtered.filter(a => a.date >= startDate);
+      if (startDate && startDate !== "") {
+        filtered = filtered.filter(a => (includeUnpaid === 'true' && (a.paymentStatus === 'unpaid' || a.status === 'pending')) || a.date >= startDate);
       }
-      if (endDate) {
-        filtered = filtered.filter(a => a.date <= endDate);
+      if (endDate && endDate !== "") {
+        filtered = filtered.filter(a => (includeUnpaid === 'true' && (a.paymentStatus === 'unpaid' || a.status === 'pending')) || a.date <= endDate);
       }
     }
 
@@ -183,7 +205,7 @@ export const getAppointments = (
       filtered = filtered.filter(a => a.type === parseInt(type, 10));
     }
     if (status && status !== 'all') {
-      filtered = filtered.filter(a => a.status === status);
+      filtered = filtered.filter(a => (includeUnpaid === 'true' && (a.paymentStatus === 'unpaid' || a.status === 'pending')) || a.status === status);
     }
 
     if (isGlobal) {
@@ -293,8 +315,42 @@ export const updateAppointment = (
       }
     }
 
+    const oldStatus = appointments[appointmentIndex].status;
     appointments[appointmentIndex] = updatedAppointment;
     writeData(COLLECTION, appointments);
+
+    // Notify Patient if status changed
+    if (updates.status && updates.status !== oldStatus) {
+      createNotification(
+        updatedAppointment.patientId,
+        "Appointment Status Updated",
+        `Your appointment on ${updatedAppointment.date} is now ${updatedAppointment.status}.`,
+        "appointment",
+        {
+          appointmentId: updatedAppointment.id,
+          currentStatus: updatedAppointment.status,
+        }
+      );
+      
+      // Notify Doctor if assigned
+      if (updatedAppointment.doctor) {
+        const staff = readData<any>("staff");
+        const doctor = staff.find((s: any) => s.name === updatedAppointment.doctor);
+        if (doctor) {
+          createNotification(
+            doctor.id,
+            "Appointment Status Updated",
+            `Appointment with ${updatedAppointment.patientName} on ${updatedAppointment.date} is now ${updatedAppointment.status}.`,
+            "appointment",
+            {
+              appointmentId: updatedAppointment.id,
+              currentStatus: updatedAppointment.status,
+              patientName: updatedAppointment.patientName,
+            }
+          );
+        }
+      }
+    }
 
     res.json({
       success: true,
@@ -440,6 +496,55 @@ export const bookPublicAppointment = async (req: Request, res: Response<ApiRespo
 
     appointments.push(newAppointment);
     writeData(COLLECTION, appointments);
+
+    // Notify Admin & Doctor of new public booking
+    const isRequest = ["pending", "tentative", "To Pay"].includes(newAppointment.status as string);
+
+    if (newAppointment.paymentStatus !== "unpaid" || isRequest) {
+      notifyAdmin(
+        isRequest ? "New Public Booking Request" : "New Public Booking",
+        `${newAppointment.patientName} has booked a ${getAppointmentTypeName(newAppointment.type, newAppointment.customType)} appointment for ${newAppointment.date} at ${newAppointment.time} via the public portal.`,
+        "appointment",
+        {
+          appointmentId: newAppointment.id,
+          currentStatus: newAppointment.status,
+          patientName: newAppointment.patientName,
+          isRequest: isRequest
+        }
+      );
+
+      // Also notify the doctor specifically
+      if (newAppointment.doctor) {
+        const staff = readData<any>("staff");
+        const doctor = staff.find((s: any) => s.name === newAppointment.doctor);
+        if (doctor) {
+          createNotification(
+            doctor.id,
+            isRequest ? "New Public Booking Request" : "New Public Booking",
+            `${newAppointment.patientName} has booked a ${getAppointmentTypeName(newAppointment.type, newAppointment.customType)} appointment for ${newAppointment.date} at ${newAppointment.time} via the public portal.`,
+            "appointment",
+            {
+              appointmentId: newAppointment.id,
+              currentStatus: newAppointment.status,
+              patientName: newAppointment.patientName,
+              isRequest: isRequest
+            }
+          );
+        }
+      }
+    }
+
+    // Notify Patient (Welcome/Confirmation)
+    createNotification(
+      patient.id!,
+      "Appointment Request Received",
+      `Your request for a ${getAppointmentTypeName(newAppointment.type, newAppointment.customType)} appointment on ${newAppointment.date} at ${newAppointment.time} has been received and is pending confirmation.`,
+      "appointment",
+      {
+        appointmentId: newAppointment.id,
+        currentStatus: newAppointment.status,
+      }
+    );
 
     res.status(201).json({
       success: true,

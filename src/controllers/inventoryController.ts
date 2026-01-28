@@ -1,8 +1,10 @@
 import { Request, Response } from "express";
 import { InventoryItem, ApiResponse } from "../types/inventory";
 import { readData, writeData } from "../utils/storage";
+import { notifyAdmin } from "../utils/notifications";
 
 const COLLECTION = "inventory";
+const LOW_STOCK_THRESHOLD = 5;
 
 // --- CRUD Operations ---
 
@@ -37,6 +39,14 @@ export const createInventoryItem = (
     inventoryItems.push(newItem);
     writeData(COLLECTION, inventoryItems);
     console.log("[INVENTORY CREATE] Inventory item saved. Total items:", inventoryItems.length);
+
+    if (newItem.quantity <= LOW_STOCK_THRESHOLD) {
+      notifyAdmin(
+        "Low Stock Alert",
+        `Item "${newItem.item}" is low on stock (${newItem.quantity} ${newItem.unit} remaining).`,
+        "system"
+      );
+    }
 
     res.status(201).json({
       success: true,
@@ -143,6 +153,14 @@ export const updateInventoryItem = (
 
     inventoryItems[itemIndex] = updatedItem;
     writeData(COLLECTION, inventoryItems);
+
+    if (updatedItem.quantity <= LOW_STOCK_THRESHOLD) {
+      notifyAdmin(
+        "Low Stock Alert",
+        `Item "${updatedItem.item}" is low on stock (${updatedItem.quantity} ${updatedItem.unit} remaining).`,
+        "system"
+      );
+    }
 
     res.json({
       success: true,

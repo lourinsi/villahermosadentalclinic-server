@@ -9,6 +9,7 @@ import { Staff } from "./types/staff";
 import { InventoryItem } from "./types/inventory";
 import { FinanceRecord } from "./types/finance";
 import { PaymentMethod } from "./types/paymentMethod";
+import { Notification, NotificationType } from "./types/notification";
 
 
 // Sample data for seeding
@@ -419,12 +420,100 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
         time: `${String(getRandomInt(8, 17)).padStart(2, "0")}:${String(getRandomElement([0, 30])).padStart(2, "0")}`,
         type: getRandomInt(0, APPOINTMENT_TYPES.length - 2), // Avoid 'Other' for past, completed appointments
         doctor: doctorsList.length > 0 ? getRandomElement(doctorsList) : "",
-        price: parseFloat(getRandomInt(50, 500).toFixed(2)),
+        price: [1500, 500, 1200, 5000, 1500, 3000][getRandomInt(0, 5)],
         status: "completed",
+        paymentStatus: "paid",
+        balance: 0,
+        totalPaid: 1, // Will be set correctly by backend or placeholder
         notes: "Routine visit completed.",
       });
     }
   });
+
+  // Add specific appointments for test patient
+  const testPatient = patientsList.find(p => p.email === "test@patient.com");
+  const testDoctorName = "Dr. Test Doctor";
+  
+  if (testPatient) {
+    // 2 in Cart (pending, unpaid)
+    for (let i = 0; i < 2; i++) {
+        const date = new Date(now);
+        date.setDate(now.getDate() + getRandomInt(1, 14));
+        generatedAppointments.push({
+            patientId: testPatient.id || "",
+            patientName: testPatient.name,
+            date: date.toISOString().split("T")[0],
+            time: "09:00",
+            type: getRandomInt(0, 5),
+            doctor: testDoctorName, // Assign to test doctor
+            price: 1500,
+            status: "pending",
+            paymentStatus: "unpaid",
+            balance: 1500,
+            totalPaid: 0,
+            notes: "Pending in cart."
+        });
+    }
+    // 1 Tentative (half-paid)
+    generatedAppointments.push({
+        patientId: testPatient.id || "",
+        patientName: testPatient.name,
+        date: new Date(now.getTime() + 86400000 * 3).toISOString().split("T")[0],
+        time: "11:00",
+        type: 0,
+        doctor: testDoctorName, // Assign to test doctor
+        price: 1500,
+        status: "tentative",
+        paymentStatus: "half-paid",
+        balance: 1000,
+        totalPaid: 500,
+        notes: "Tentative booking with partial payment."
+    });
+    // 1 To Pay (Clinic payment, scheduled)
+    generatedAppointments.push({
+        patientId: testPatient.id || "",
+        patientName: testPatient.name,
+        date: new Date(now.getTime() + 86400000 * 4).toISOString().split("T")[0],
+        time: "13:30",
+        type: 3,
+        doctor: testDoctorName, // Assign to test doctor
+        price: 5000,
+        status: "To Pay",
+        paymentStatus: "unpaid",
+        balance: 5000,
+        totalPaid: 0,
+        notes: "Pay at clinic request."
+    });
+    // 2 in Bookings (confirmed/scheduled, paid)
+    generatedAppointments.push({
+        patientId: testPatient.id || "",
+        patientName: testPatient.name,
+        date: new Date(now.getTime() + 86400000 * 2).toISOString().split("T")[0],
+        time: "10:30",
+        type: 1,
+        doctor: testDoctorName, // Assign to test doctor
+        price: 500,
+        status: "confirmed",
+        paymentStatus: "paid",
+        balance: 0,
+        totalPaid: 500,
+        notes: "Confirmed and paid."
+    });
+    generatedAppointments.push({
+        patientId: testPatient.id || "",
+        patientName: testPatient.name,
+        date: new Date(now.getTime() + 86400000 * 5).toISOString().split("T")[0],
+        time: "14:00",
+        type: 2,
+        doctor: testDoctorName, // Assign to test doctor
+        price: 1200,
+        status: "scheduled",
+        paymentStatus: "paid",
+        balance: 0,
+        totalPaid: 1200,
+        notes: "Scheduled and fully paid."
+    });
+  }
 
   // Then generate some random future/mixed appointments
   const remainingCount = Math.max(0, count - generatedAppointments.length);
@@ -437,6 +526,22 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
     const minute = getRandomElement([0, 30]);
     const appointmentTypeIndex = getRandomInt(0, APPOINTMENT_TYPES.length - 1);
     const customType = appointmentTypeIndex === APPOINTMENT_TYPES.length - 1 ? "Custom user-defined procedure" : undefined;
+    
+    const status = (isPast ? "completed" : getRandomElement(["pending", "tentative", "To Pay", "confirmed", "scheduled"])) as any;
+    
+    let paymentStatus: "paid" | "unpaid" | "half-paid" = "unpaid";
+    if (status === "completed") paymentStatus = "paid";
+    else if (status === "pending") paymentStatus = "unpaid";
+    else if (status === "tentative") paymentStatus = "half-paid";
+    else if (status === "To Pay") paymentStatus = "unpaid";
+    else paymentStatus = Math.random() > 0.3 ? "paid" : "unpaid";
+
+    const price = [1500, 500, 1200, 5000, 1500, 3000][getRandomInt(0, 5)] || 1000;
+    let totalPaid = 0;
+    if (paymentStatus === "paid") totalPaid = price;
+    else if (paymentStatus === "half-paid") totalPaid = Math.floor(price / 2);
+    
+    const balance = price - totalPaid;
 
     const appointment: Omit<Appointment, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt"> = {
       patientId: patient.id || "",
@@ -446,8 +551,11 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
       type: appointmentTypeIndex,
       customType: customType,
       doctor: doctorsList.length > 0 ? getRandomElement(doctorsList) : "",
-      price: parseFloat(getRandomInt(50, 500).toFixed(2)),
-      status: isPast ? "completed" : getRandomElement(["pending", "confirmed", "scheduled"]),
+      price: price,
+      status: status,
+      paymentStatus: paymentStatus,
+      totalPaid: totalPaid,
+      balance: balance,
       notes: getRandomElement([
         "Routine cleaning and checkup",
         "Follow-up from previous visit",
@@ -485,6 +593,150 @@ function generateFinanceRecords(patientsList: Patient[], count: number = 80): Om
   }
 
   return records;
+}
+
+function generateNotifications(patients: Patient[], staff: Staff[], appointments: Appointment[]): any[] {
+  const notifications: any[] = [];
+  
+  const admin = staff.find(s => s.role.toLowerCase().includes("manager")) || staff[0];
+  const doctors = staff.filter(s => s.role.toLowerCase().includes("dentist"));
+  
+  // 1. Admin notifications
+  if (admin) {
+    // New patient registrations
+    patients.slice(0, 5).forEach(p => {
+      notifications.push({
+        userId: admin.id || "",
+        title: "New Patient Registration",
+        message: `A new patient, ${p.firstName} ${p.lastName}, has registered on the portal.`,
+        type: "system",
+        isRead: Math.random() > 0.5,
+        createdAt: new Date().toISOString(),
+      });
+    });
+    
+    // Cancellation requests
+    appointments.filter(a => a.status === "pending").slice(0, 3).forEach(a => {
+      notifications.push({
+        userId: admin.id || "",
+        title: "Appointment Request",
+        message: `${a.patientName} has requested an appointment for ${APPOINTMENT_TYPES[a.type || 0]} on ${a.date}.`,
+        type: "appointment",
+        isRead: false,
+        createdAt: new Date().toISOString(),
+        metadata: {
+          appointmentId: a.id,
+          currentStatus: a.status,
+          patientName: a.patientName,
+          isRequest: ["pending", "tentative", "To Pay"].includes(a.status || '')
+        }
+      });
+    });
+    
+    // Payment alerts
+    notifications.push({
+      userId: admin.id || "",
+      title: "Payment Reconciliation",
+      message: "Multiple payments are pending reconciliation for the current month.",
+      type: "payment",
+      isRead: false,
+      createdAt: new Date().toISOString(),
+    });
+    
+    // Add a low stock alert
+    notifications.push({
+      userId: admin.id || "",
+      title: "Low Stock Alert",
+      message: 'Item "Dental Anesthetic (Lidocaine)" is low on stock (45 vials remaining).',
+      type: "system",
+      isRead: false,
+      createdAt: new Date().toISOString(),
+    });
+  }
+  
+  // 2. Doctor notifications
+  doctors.forEach(doc => {
+    const docAppointments = appointments.filter(a => a.doctor === doc.name);
+    
+    // New Appointment Requests (pending, tentative, To Pay)
+    const requests = docAppointments.filter(a => ["pending", "tentative", "To Pay"].includes(a.status || ''));
+    requests.forEach(a => {
+      notifications.push({
+        userId: doc.id || "",
+        title: "New Appointment Request",
+        message: `${a.patientName} has a ${a.status} appointment for ${APPOINTMENT_TYPES[a.type || 0]} on ${a.date} at ${a.time}.`,
+        type: "appointment",
+        isRead: false,
+        createdAt: new Date().toISOString(),
+        metadata: {
+          appointmentId: a.id,
+          currentStatus: a.status,
+          patientName: a.patientName,
+          isRequest: true
+        }
+      });
+    });
+
+    // Upcoming appointments (confirmed, scheduled)
+    const upcoming = docAppointments.filter(a => ["confirmed", "scheduled"].includes(a.status || ''));
+    upcoming.slice(0, 5).forEach(a => {
+      notifications.push({
+        userId: doc.id || "",
+        title: "Upcoming Appointment",
+        message: `You have an appointment with ${a.patientName} for ${APPOINTMENT_TYPES[a.type || 0]} today at ${a.time}.`,
+        type: "appointment",
+        isRead: Math.random() > 0.3,
+        createdAt: new Date().toISOString(),
+        metadata: {
+          appointmentId: a.id,
+          currentStatus: a.status,
+          patientName: a.patientName,
+          isRequest: false
+        }
+      });
+    });
+  });
+  
+  // 3. Patient notifications
+  const testPatient = patients.find(p => p.email === "test@patient.com");
+  const notificationPatients = patients.slice(0, 10);
+  if (testPatient && !notificationPatients.includes(testPatient)) {
+    notificationPatients.push(testPatient);
+  }
+
+  notificationPatients.forEach(p => {
+    const pAppointments = appointments.filter(a => a.patientId === p.id);
+    
+    pAppointments.forEach(a => {
+      const isRequest = ["pending", "tentative", "To Pay"].includes(a.status || '');
+      notifications.push({
+        userId: p.id || "",
+        title: isRequest ? "Appointment Request Received" : "Appointment Confirmation",
+        message: isRequest 
+          ? `Your request for ${APPOINTMENT_TYPES[a.type || 0]} on ${a.date} at ${a.time} is ${a.status}.`
+          : `Your appointment for ${APPOINTMENT_TYPES[a.type || 0]} on ${a.date} at ${a.time} has been ${a.status}.`,
+        type: "appointment",
+        isRead: Math.random() > 0.5,
+        createdAt: new Date().toISOString(),
+        metadata: {
+          appointmentId: a.id,
+          currentStatus: a.status,
+          isRequest: isRequest
+        }
+      });
+    });
+    
+    notifications.push({
+      userId: p.id || "",
+      title: "Welcome to Villahermosa Dental Clinic",
+      message: "Thank you for joining our clinic. We look forward to serving you!",
+      type: "system",
+      isRead: true,
+      createdAt: new Date().toISOString(),
+    });
+  });
+  
+  return notifications;
 }
 
 async function seedDatabase() {
@@ -568,11 +820,39 @@ async function seedDatabase() {
     }
     console.log(`✅ All dependents added. Total patients now: ${createdPatients.length}\n`);
 
+    // --- Seed Staff Members ---
+    const createdStaff: Staff[] = [];
+    console.log("📤 Adding staff members to database via API...");
+    for (const staffData of staffMembersData) {
+      try {
+        const response = await fetch("http://localhost:3001/api/staff", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(staffData),
+        });
+
+        if (!response.ok) {
+          console.error(`❌ Failed to add staff member: ${staffData.name}`);
+        } else {
+          const apiResponse = await response.json();
+          if (apiResponse.success && apiResponse.data) {
+            createdStaff.push(apiResponse.data);
+          }
+        }
+      } catch (err) {
+        console.error(`❌ Error adding staff member: ${err}`);
+      }
+    }
+    console.log(`✅ All staff members added. Total: ${createdStaff.length}\n`);
+
     // Generate appointments
     const generatedAppointmentsData = generateAppointments(createdPatients, doctorNames, 60);
     console.log(`✅ Generated ${generatedAppointmentsData.length} appointments data\n`);
 
     // --- Seed Appointments ---
+    const createdAppointments: Appointment[] = [];
     console.log("📤 Adding appointments to database via API...");
     for (const appointmentData of generatedAppointmentsData) {
       try {
@@ -586,12 +866,17 @@ async function seedDatabase() {
 
         if (!response.ok) {
           console.error(`❌ Failed to add appointment for patientId ${appointmentData.patientId}`);
+        } else {
+          const apiResponse = await response.json();
+          if (apiResponse.success && apiResponse.data) {
+            createdAppointments.push(apiResponse.data);
+          }
         }
       } catch (err) {
         console.error(`❌ Error adding appointment: ${err}`);
       }
     }
-    console.log(`✅ All appointments added. Total: ${generatedAppointmentsData.length}\n`);
+    console.log(`✅ All appointments added. Total: ${createdAppointments.length}\n`);
 
     // Generate finance records
     const generatedFinanceRecords = generateFinanceRecords(createdPatients, 80);
@@ -660,34 +945,38 @@ async function seedDatabase() {
     }
     console.log(`✅ All payment methods added. Total: ${paymentMethodsData.length}\n`);
 
-    // --- Seed Staff Members ---
-    console.log("📤 Adding staff members to database via API...");
-    for (const staffData of staffMembersData) {
+    // --- Seed Notifications ---
+    console.log("🔔 Generating and seeding notifications...");
+    const notificationsToCreate = generateNotifications(createdPatients, createdStaff, createdAppointments);
+    console.log(`📤 Adding ${notificationsToCreate.length} notifications to database via API...`);
+    for (const notificationData of notificationsToCreate) {
       try {
-        const response = await fetch("http://localhost:3001/api/staff", {
+        const response = await fetch("http://localhost:3001/api/notifications", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify(staffData),
+          body: JSON.stringify(notificationData),
         });
 
         if (!response.ok) {
-          console.error(`❌ Failed to add staff member: ${staffData.name}`);
+          const errorText = await response.text();
+          console.error(`❌ Failed to add notification for userId ${notificationData.userId}. Status: ${response.status}. Error: ${errorText}`);
         }
       } catch (err) {
-        console.error(`❌ Error adding staff member: ${err}`);
+        console.error(`❌ Error adding notification: ${err}`);
       }
     }
-    console.log(`✅ All staff members added. Total: ${staffMembersData.length}\n`);
+    console.log(`✅ All notifications added. Total: ${notificationsToCreate.length}\n`);
 
     console.log("📊 Seeding Summary:");
     console.log(`   ✅ Total Patients Added: ${createdPatients.length}`);
-    console.log(`   ✅ Total Appointments Added: ${generatedAppointmentsData.length}`);
+    console.log(`   ✅ Total Appointments Added: ${createdAppointments.length}`);
     console.log(`   ✅ Total Finance Records Added: ${generatedFinanceRecords.length}`);
     console.log(`   ✅ Total Inventory Items Added: ${inventoryItemsData.length}`);
     console.log(`   ✅ Total Payment Methods Added: ${paymentMethodsData.length}`);
-    console.log(`   ✅ Total Staff Members Added: ${staffMembersData.length}`);
+    console.log(`   ✅ Total Staff Members Added: ${createdStaff.length}`);
+    console.log(`   ✅ Total Notifications Added: ${notificationsToCreate.length}`);
     console.log("\n✨ Database seeding completed successfully!");
     console.log("🎉 You can now refresh your application to see the new data.\n");
 

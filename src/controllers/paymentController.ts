@@ -1,8 +1,11 @@
 import { Request, Response } from "express";
 import { Payment, ApiResponse } from "../types/payment";
 import { readData, writeData } from "../utils/storage";
+import { hasConflict } from "../utils/appointment-helpers";
 import { Appointment } from "../types/appointment";
 import { Patient } from "../types/patient";
+import { createNotification, notifyAdmin } from "../utils/notifications";
+import { getAppointmentTypeName } from "../utils/appointment-types";
 
 const COLLECTION = "payments";
 
@@ -30,6 +33,11 @@ export const createPayment = (req: Request, res: Response<ApiResponse<any>>) => 
     }
 
     const payAmount = Number(amount);
+    
+    // Handle "Pay at Clinic" (Cash upon appointment) which might have 0 amount initially in createPayment
+    // but we want to process it to update appointment status
+    const isPayAtClinic = method === 'Pay at Clinic';
+
     const newPayment: Payment = {
       id: `pay_${Date.now()}_${Math.floor(Math.random()*1000)}`,
       appointmentId,
@@ -37,31 +45,103 @@ export const createPayment = (req: Request, res: Response<ApiResponse<any>>) => 
       amount: payAmount,
       method: method || 'unknown',
       date: date || new Date().toISOString().split('T')[0],
-      transactionId: transactionId || `T-${Math.random().toString(36).slice(2,9).toUpperCase()}`,
-      notes: notes || '',
-      status: 'completed',
+      transactionId: transactionId || (isPayAtClinic ? `PAC-${Math.random().toString(36).slice(2,9).toUpperCase()}` : `T-${Math.random().toString(36).slice(2,9).toUpperCase()}`),
+      notes: notes || (isPayAtClinic ? 'Cash upon appointment' : ''),
+      status: isPayAtClinic && payAmount === 0 ? 'pending' : 'completed',
       createdAt: new Date(),
       updatedAt: new Date(),
       deleted: false,
     };
 
-    payments.push(newPayment);
-    writeData(COLLECTION, payments);
+    if (!isPayAtClinic || payAmount > 0) {
+      payments.push(newPayment);
+      writeData(COLLECTION, payments);
+    }
 
     // update appointment aggregates
     const idx = appointments.findIndex(a => a.id === appointmentId);
     if (idx !== -1) {
       const apt = appointments[idx];
       apt.totalPaid = (apt.totalPaid || 0) + payAmount;
-      apt.balance = (apt.balance != null ? apt.balance : (apt.price || 0)) - payAmount;
-      if (apt.balance <= 0) apt.paymentStatus = 'paid';
-      else if (apt.totalPaid === 0) apt.paymentStatus = 'unpaid';
-      else apt.paymentStatus = apt.balance < (apt.price || 0) ? 'half-paid' : 'unpaid';
+      apt.balance = (apt.balance != null ? apt.balance : (apt.price || 0)) - apt.totalPaid; // Recalculate based on total paid
       
-      // Automatically schedule the appointment if it was pending
+      if (apt.balance <= 0) apt.paymentStatus = 'paid';
+      else if (apt.totalPaid > 0) apt.paymentStatus = 'half-paid';
+      else apt.paymentStatus = 'unpaid';
+      
+      // Promotion Logic
+      let conflictFound = false;
       if (apt.status === 'pending') {
-        apt.status = 'scheduled';
+        // Check for conflicts before promoting
+        const conflict = hasConflict(
+          appointments,
+          apt.date,
+          apt.time,
+          apt.duration || 60,
+          apt.doctor || "",
+          apt.id
+        );
+
+        if (conflict) {
+          conflictFound = true;
+          notifyAdmin(
+            "Appointment Conflict Detected",
+            `${apt.patientName} tried to confirm an appointment on ${apt.date} at ${apt.time}, but this slot is already taken.`,
+            "appointment",
+            { appointmentId: apt.id, patientName: apt.patientName }
+          );
+        } else {
+          if (isPayAtClinic) {
+            apt.status = 'To Pay';
+            // User said: "When this is used change the status to 'To Pay' ... and it should be scheduled too as well"
+            // This is slightly contradictory in status terms, but I'll set it to 'To Pay'
+            // and maybe 'To Pay' is treated as scheduled in the calendar.
+            // Or did they mean status should be 'scheduled' but we call it 'To Pay'?
+            // Re-reading: "change the status to 'To Pay' ... and it should be scheduled too as well"
+            // I'll stick with 'To Pay' as the status.
+          } else if (apt.paymentStatus === 'paid') {
+            apt.status = 'scheduled';
+          } else if (apt.paymentStatus === 'half-paid') {
+            apt.status = 'tentative';
+          }
+          
+          notifyAdmin(
+            `Appointment Updated: ${apt.status}`,
+            `${apt.patientName} has updated their appointment for ${getAppointmentTypeName(apt.type, apt.customType)} on ${apt.date} at ${apt.time}. Status: ${apt.status}`,
+            "appointment",
+            { 
+              appointmentId: apt.id, 
+              currentStatus: apt.status, 
+              patientName: apt.patientName,
+              isRequest: ['To Pay', 'tentative'].includes(apt.status)
+            }
+          );
+        }
+      } else if (apt.status === 'tentative' && apt.paymentStatus === 'paid') {
+        // If it was tentative and now fully paid, it might become scheduled? 
+        // But user said: "When accepted by the doctor/admin, the appointment status will then be updated to scheduled."
+        // So we leave it as tentative or confirmed? I'll leave it as is for now.
       }
+
+      // Notify Patient
+      let message = `We have received your payment of ₱${payAmount}.`;
+      if (isPayAtClinic) {
+        message = `Your request to pay at the clinic for your appointment on ${apt.date} has been received. Status: ${apt.status}.`;
+      } else if (conflictFound) {
+        message = `We have received your payment of ₱${payAmount}. However, there is a scheduling conflict. Our staff will contact you.`;
+      } else if (apt.status === 'tentative') {
+        message = `We have received your partial payment of ₱${payAmount}. Your slot is reserved but not yet fully scheduled. It will be updated once accepted by our staff.`;
+      } else if (apt.status === 'scheduled') {
+        message = `Your payment of ₱${payAmount} was successful. Your appointment on ${apt.date} is now scheduled.`;
+      }
+
+      createNotification(
+        apt.patientId,
+        "Appointment Status Update",
+        message,
+        "appointment",
+        { appointmentId: apt.id, currentStatus: apt.status }
+      );
 
       apt.updatedAt = new Date();
       appointments[idx] = apt;
