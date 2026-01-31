@@ -21,8 +21,12 @@ export const getNotifications = (req: Request, res: Response<ApiResponse<Notific
       filtered = filtered.filter(n => n.type === type);
     }
 
-    // Sort by date descending
-    filtered.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    // Sort by latest date (updatedAt or createdAt) descending
+    filtered.sort((a, b) => {
+      const dateA = new Date(a.updatedAt || a.createdAt).getTime();
+      const dateB = new Date(b.updatedAt || b.createdAt).getTime();
+      return dateB - dateA;
+    });
 
     res.json({
       success: true,
@@ -125,10 +129,15 @@ export const updateNotification = (req: Request, res: Response<ApiResponse<Notif
       });
     }
 
+    const updates = req.body;
+    const isOnlyMarkingRead = Object.keys(updates).length === 1 && updates.isRead !== undefined;
+
     notifications[index] = {
       ...notifications[index],
-      ...req.body,
-      updatedAt: new Date().toISOString(),
+      ...updates,
+      // If updating more than just isRead, mark as unread AND update updatedAt
+      isRead: isOnlyMarkingRead ? updates.isRead : false,
+      updatedAt: isOnlyMarkingRead ? (notifications[index].updatedAt || notifications[index].createdAt) : new Date().toISOString(),
     };
 
     writeData(COLLECTION, notifications);
@@ -197,7 +206,7 @@ export const markAllAsRead = (req: Request, res: Response<ApiResponse<null>>) =>
 
     const updatedNotifications = notifications.map(n => {
       if (n.userId === userId && !n.isRead && !n.deleted) {
-        return { ...n, isRead: true, updatedAt: new Date().toISOString() };
+        return { ...n, isRead: true };
       }
       return n;
     });

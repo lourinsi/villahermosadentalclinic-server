@@ -6,7 +6,7 @@ import { readData, writeData } from "../utils/storage";
 import { hasConflict } from "../utils/appointment-helpers";
 import { FinanceRecord } from "../types/finance";
 import { Patient } from "../types/patient";
-import { createNotification, notifyAdmin, updateOrCreateNotificationForAppointment } from "../utils/notifications";
+import { notifyAppointmentChange } from "../utils/notifications";
 
 const COLLECTION = "appointments";
 
@@ -84,73 +84,8 @@ export const addAppointment = (req: Request, res: Response<ApiResponse<Appointme
     writeData(COLLECTION, appointments);
     console.log("[APPOINTMENT CREATE] Appointment saved. Total appointments:", appointments.length);
 
-    // Notify Patient
-    const notifiedUserIds = new Set<string>();
-    if (newAppointment.patientId) {
-      updateOrCreateNotificationForAppointment(
-        newAppointment.patientId,
-        newAppointment.id!,
-        {
-          title: "Appointment Scheduled",
-          message: `Your appointment for ${getAppointmentTypeName(newAppointment.type, newAppointment.customType)} is scheduled for ${newAppointment.date} at ${newAppointment.time}.`,
-          type: "appointment",
-          metadata: {
-            appointmentId: newAppointment.id,
-            currentStatus: newAppointment.status,
-          }
-        }
-      );
-      notifiedUserIds.add(newAppointment.patientId);
-    }
-
-    // Notify Admin & Doctor
-    const isRequest = ["pending", "tentative", "To Pay"].includes(newAppointment.status as string);
-    
-    if (newAppointment.paymentStatus !== "unpaid" || isRequest) {
-      const staff = readData<any>("staff");
-      const admin = staff.find((s: any) => s.role?.toLowerCase().includes("manager") || s.role?.toLowerCase().includes("admin")) || staff[0];
-      if (admin && admin.id && !notifiedUserIds.has(admin.id)) {
-        updateOrCreateNotificationForAppointment(
-          admin.id,
-          newAppointment.id!,
-          {
-            title: isRequest ? "New Appointment Request" : "New Appointment Scheduled",
-            message: `${newAppointment.patientName} has a ${newAppointment.status} appointment for ${getAppointmentTypeName(newAppointment.type, newAppointment.customType)} on ${newAppointment.date} at ${newAppointment.time}.`,
-            type: "appointment",
-            metadata: {
-              appointmentId: newAppointment.id,
-              currentStatus: newAppointment.status,
-              patientName: newAppointment.patientName,
-              isRequest: isRequest
-            }
-          }
-        );
-        notifiedUserIds.add(admin.id);
-      }
-
-      // Also notify the doctor specifically
-      if (newAppointment.doctor) {
-        const doctor = staff.find((s: any) => s.name === newAppointment.doctor);
-        if (doctor && doctor.id && !notifiedUserIds.has(doctor.id)) {
-          updateOrCreateNotificationForAppointment(
-            doctor.id,
-            newAppointment.id!,
-            {
-              title: isRequest ? "New Appointment Request" : "New Appointment Scheduled",
-              message: `${newAppointment.patientName} has a ${newAppointment.status} appointment for ${getAppointmentTypeName(newAppointment.type, newAppointment.customType)} on ${newAppointment.date} at ${newAppointment.time}.`,
-              type: "appointment",
-              metadata: {
-                appointmentId: newAppointment.id,
-                currentStatus: newAppointment.status,
-                patientName: newAppointment.patientName,
-                isRequest: isRequest
-              }
-            }
-          );
-          notifiedUserIds.add(doctor.id);
-        }
-      }
-    }
+    // Centralized notification logic
+    notifyAppointmentChange(newAppointment, 'created');
 
     res.status(201).json({
       success: true,
@@ -341,70 +276,7 @@ export const updateAppointment = (
 
     // Notify users if status changed
     if (updates.status && updates.status !== oldStatus) {
-      const staff = readData<any>("staff");
-      const notifiedUserIds = new Set<string>();
-
-      // Notify Patient
-      if (updatedAppointment.patientId) {
-        updateOrCreateNotificationForAppointment(
-          updatedAppointment.patientId,
-          updatedAppointment.id!,
-          {
-            title: "Appointment Status Updated",
-            message: `Your appointment on ${updatedAppointment.date} is now ${updatedAppointment.status}.`,
-            type: "appointment",
-            metadata: {
-              appointmentId: updatedAppointment.id,
-              currentStatus: updatedAppointment.status,
-            }
-          }
-        );
-        notifiedUserIds.add(updatedAppointment.patientId);
-      }
-      
-      // Notify Doctor if assigned
-      if (updatedAppointment.doctor) {
-        const doctor = staff.find((s: any) => s.name === updatedAppointment.doctor);
-        if (doctor && doctor.id && !notifiedUserIds.has(doctor.id)) {
-          updateOrCreateNotificationForAppointment(
-            doctor.id,
-            updatedAppointment.id!,
-            {
-              title: "Appointment Status Updated",
-              message: `Appointment with ${updatedAppointment.patientName} on ${updatedAppointment.date} is now ${updatedAppointment.status}.`,
-              type: "appointment",
-              metadata: {
-                appointmentId: updatedAppointment.id,
-                currentStatus: updatedAppointment.status,
-                patientName: updatedAppointment.patientName,
-              }
-            }
-          );
-          notifiedUserIds.add(doctor.id);
-        }
-      }
-
-      // Notify Admin
-      const admin = staff.find((s: any) => s.role?.toLowerCase().includes("manager") || s.role?.toLowerCase().includes("admin")) || staff[0];
-      if (admin && admin.id && !notifiedUserIds.has(admin.id)) {
-        const isRequest = ["pending", "tentative", "To Pay"].includes(updatedAppointment.status as string);
-        updateOrCreateNotificationForAppointment(
-          admin.id,
-          updatedAppointment.id!,
-          {
-            title: isRequest ? "New Appointment Request" : "Appointment Status Updated",
-            message: `The appointment with ${updatedAppointment.patientName} on ${updatedAppointment.date} is now ${updatedAppointment.status}.`,
-            type: "appointment",
-            metadata: {
-              appointmentId: updatedAppointment.id,
-              currentStatus: updatedAppointment.status,
-              patientName: updatedAppointment.patientName,
-              isRequest: isRequest,
-            }
-          }
-        );
-        notifiedUserIds.add(admin.id);
-      }
+      notifyAppointmentChange(updatedAppointment, 'updated', { oldStatus });
     }
 
     res.json({
@@ -552,73 +424,8 @@ export const bookPublicAppointment = async (req: Request, res: Response<ApiRespo
     appointments.push(newAppointment);
     writeData(COLLECTION, appointments);
 
-    // Notify Patient (Welcome/Confirmation)
-    const notifiedUserIds = new Set<string>();
-    if (patient.id) {
-      updateOrCreateNotificationForAppointment(
-        patient.id,
-        newAppointment.id!,
-        {
-          title: "Appointment Request Received",
-          message: `Your request for a ${getAppointmentTypeName(newAppointment.type, newAppointment.customType)} appointment on ${newAppointment.date} at ${newAppointment.time} has been received and is pending confirmation.`,
-          type: "appointment",
-          metadata: {
-            appointmentId: newAppointment.id,
-            currentStatus: newAppointment.status,
-          }
-        }
-      );
-      notifiedUserIds.add(patient.id);
-    }
-
-    // Notify Admin & Doctor of new public booking
-    const isRequest = ["pending", "tentative", "To Pay"].includes(newAppointment.status as string);
-
-    if (newAppointment.paymentStatus !== "unpaid" || isRequest) {
-      const staff = readData<any>("staff");
-      const admin = staff.find((s: any) => s.role?.toLowerCase().includes("manager") || s.role?.toLowerCase().includes("admin")) || staff[0];
-      if (admin && admin.id && !notifiedUserIds.has(admin.id)) {
-        updateOrCreateNotificationForAppointment(
-          admin.id,
-          newAppointment.id!,
-          {
-            title: isRequest ? "New Public Booking Request" : "New Public Booking",
-            message: `${newAppointment.patientName} has booked a ${getAppointmentTypeName(newAppointment.type, newAppointment.customType)} appointment for ${newAppointment.date} at ${newAppointment.time} via the public portal.`,
-            type: "appointment",
-            metadata: {
-              appointmentId: newAppointment.id,
-              currentStatus: newAppointment.status,
-              patientName: newAppointment.patientName,
-              isRequest: isRequest
-            }
-          }
-        );
-        notifiedUserIds.add(admin.id);
-      }
-
-      // Also notify the doctor specifically
-      if (newAppointment.doctor) {
-        const doctor = staff.find((s: any) => s.name === newAppointment.doctor);
-        if (doctor && doctor.id && !notifiedUserIds.has(doctor.id)) {
-          updateOrCreateNotificationForAppointment(
-            doctor.id,
-            newAppointment.id!,
-            {
-              title: isRequest ? "New Public Booking Request" : "New Public Booking",
-              message: `${newAppointment.patientName} has booked a ${getAppointmentTypeName(newAppointment.type, newAppointment.customType)} appointment for ${newAppointment.date} at ${newAppointment.time} via the public portal.`,
-              type: "appointment",
-              metadata: {
-                appointmentId: newAppointment.id,
-                currentStatus: newAppointment.status,
-                patientName: newAppointment.patientName,
-                isRequest: isRequest
-              }
-            }
-          );
-          notifiedUserIds.add(doctor.id);
-        }
-      }
-    }
+    // Centralized notification logic
+    notifyAppointmentChange(newAppointment, 'public_request');
 
     res.status(201).json({
       success: true,

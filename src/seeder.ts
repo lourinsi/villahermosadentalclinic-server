@@ -10,6 +10,7 @@ import { InventoryItem } from "./types/inventory";
 import { FinanceRecord } from "./types/finance";
 import { PaymentMethod } from "./types/paymentMethod";
 import { Notification, NotificationType } from "./types/notification";
+import { getAppointmentTypeName } from "./utils/appointment-types";
 
 
 // Sample data for seeding
@@ -598,46 +599,141 @@ function generateFinanceRecords(patientsList: Patient[], count: number = 80): Om
 function generateNotifications(patients: Patient[], staff: Staff[], appointments: Appointment[]): any[] {
   const notifications: any[] = [];
   
-  const admin = staff.find(s => s.role.toLowerCase().includes("manager")) || staff[0];
-  const doctors = staff.filter(s => s.role.toLowerCase().includes("dentist"));
+  // 1. Literal Admin and Management staff notifications
+  const adminUserIds = new Set<string>();
+  adminUserIds.add("admin"); // The literal admin user
   
-  // 1. Admin notifications
-  if (admin) {
-    // New patient registrations - Handled by API, but we can add some extra ones if we want
-    // We'll keep these as examples of system notifications not tied to a specific action
-    
-    // Payment alerts
+  staff.filter(s => 
+    s.role?.toLowerCase().includes("manager") || 
+    s.role?.toLowerCase().includes("admin") ||
+    s.role?.toLowerCase().includes("lead dentist")
+  ).forEach(s => {
+    if (s.id) adminUserIds.add(s.id);
+  });
+
+  // Add some general system notifications for admins
+  adminUserIds.forEach(adminId => {
     notifications.push({
-      userId: admin.id || "",
-      title: "Payment Reconciliation",
-      message: "Multiple payments are pending reconciliation for the current month.",
-      type: "payment",
-      isRead: false,
-      createdAt: new Date().toISOString(),
-    });
-    
-    // Add a low stock alert
-    notifications.push({
-      userId: admin.id || "",
+      userId: adminId,
       title: "Low Stock Alert",
       message: 'Item "Dental Anesthetic (Lidocaine)" is low on stock (45 vials remaining).',
       type: "system",
       isRead: false,
       createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     });
-  }
-  
-  // 2. Doctor notifications
-  // Handled by API during appointment creation
-  
-  // 3. Patient notifications
-  const testPatient = patients.find(p => p.email === "test@patient.com");
-  const notificationPatients = patients.slice(0, 10);
-  if (testPatient && !notificationPatients.includes(testPatient)) {
-    notificationPatients.push(testPatient);
-  }
 
-  notificationPatients.forEach(p => {
+    notifications.push({
+      userId: adminId,
+      title: "Payment Reconciliation",
+      message: "Multiple payments are pending reconciliation for the current month.",
+      type: "payment",
+      isRead: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+  });
+
+  // 2. Map appointments to notifications for relevant parties
+  // We'll seed notifications for the last 15 appointments to simulate recent activity
+  // Skip "pending" status as requested by the user
+  const recentAppointments = appointments.filter(a => a.status !== "pending").slice(-15);
+  
+  recentAppointments.forEach(apt => {
+    const serviceName = getAppointmentTypeName(apt.type, apt.customType);
+    
+    let statusText = apt.status || "updated";
+    if (statusText === "scheduled" || statusText === "confirmed") statusText = "confirmed";
+
+    const isRequest = ["pending", "tentative", "To Pay"].includes(apt.status || "");
+
+    const getIsoDate = (date: any) => {
+      if (!date) return new Date().toISOString();
+      try {
+        return new Date(date).toISOString();
+      } catch (e) {
+        return new Date().toISOString();
+      }
+    };
+
+    // Notification for Patient
+    if (apt.patientId) {
+      notifications.push({
+        userId: apt.patientId,
+        title: "Appointment Update",
+        message: `Your appointment for ${serviceName} on ${apt.date} is now ${statusText}.`,
+        type: "appointment",
+        isRead: Math.random() > 0.3,
+        createdAt: getIsoDate(apt.createdAt),
+        updatedAt: getIsoDate(apt.updatedAt),
+        metadata: {
+          appointmentId: apt.id,
+          currentStatus: apt.status,
+          patientName: apt.patientName,
+          isRequest: isRequest,
+          isPatientView: true
+        }
+      });
+    }
+
+    // Notification for Doctor
+    const assignedDoctor = staff.find(s => s.name === apt.doctor);
+    if (assignedDoctor && assignedDoctor.id) {
+      notifications.push({
+        userId: assignedDoctor.id,
+        title: "Appointment Update",
+        message: `Appointment with ${apt.patientName} for ${serviceName} on ${apt.date} is now ${statusText}.`,
+        type: "appointment",
+        isRead: Math.random() > 0.3,
+        createdAt: getIsoDate(apt.createdAt),
+        updatedAt: getIsoDate(apt.updatedAt),
+        metadata: {
+          appointmentId: apt.id,
+          currentStatus: apt.status,
+          patientName: apt.patientName,
+          isRequest: isRequest,
+          isDoctorView: true
+        }
+      });
+    }
+
+    // Notification for Admins (Third person)
+    adminUserIds.forEach(adminId => {
+      // Don't duplicate if they are already the doctor
+      if (assignedDoctor && assignedDoctor.id === adminId) return;
+
+      const doctorName = apt.doctor || "The doctor";
+      let adminMessage = `${doctorName} has updated the appointment for ${apt.patientName} (${serviceName}) on ${apt.date}.`;
+      
+      if (apt.status === "confirmed" || apt.status === "scheduled") {
+        adminMessage = `${doctorName} has accepted the appointment for ${apt.patientName} (${serviceName}) on ${apt.date}.`;
+      } else if (apt.status === "cancelled") {
+        adminMessage = `${doctorName} has cancelled the appointment for ${apt.patientName} (${serviceName}) on ${apt.date}.`;
+      } else if (apt.status === "tentative") {
+        adminMessage = `${apt.patientName} has made a partial payment for the ${serviceName} appointment on ${apt.date}.`;
+      }
+
+      notifications.push({
+        userId: adminId,
+        title: "Appointment Update",
+        message: adminMessage,
+        type: "appointment",
+        isRead: Math.random() > 0.3,
+        createdAt: getIsoDate(apt.createdAt),
+        updatedAt: getIsoDate(apt.updatedAt),
+        metadata: {
+          appointmentId: apt.id,
+          currentStatus: apt.status,
+          patientName: apt.patientName,
+          isRequest: isRequest,
+          isAdminView: true
+        }
+      });
+    });
+  });
+  
+  // 3. Welcome notifications for patients
+  patients.slice(0, 10).forEach(p => {
     notifications.push({
       userId: p.id || "",
       title: "Welcome to Villahermosa Dental Clinic",
@@ -645,6 +741,7 @@ function generateNotifications(patients: Patient[], staff: Staff[], appointments
       type: "system",
       isRead: true,
       createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     });
   });
   
