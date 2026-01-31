@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { Notification } from "../types/notification";
 import { ApiResponse } from "../types/patient";
 import { readData, writeData } from "../utils/storage";
+import { updateOrCreateNotificationForAppointment } from "../utils/notifications";
 
 const COLLECTION = "notifications";
 
@@ -53,6 +54,35 @@ export const addNotification = (req: Request, res: Response<ApiResponse<Notifica
       return res.status(400).json({
         success: false,
         message: "Missing required fields: userId, title, message, and type are required",
+      });
+    }
+
+    // Special handling for appointment notifications to prevent duplicates
+    if (notificationData.type === "appointment" && notificationData.metadata?.appointmentId) {
+      updateOrCreateNotificationForAppointment(
+        notificationData.userId,
+        notificationData.metadata.appointmentId,
+        {
+          title: notificationData.title,
+          message: notificationData.message,
+          type: notificationData.type,
+          metadata: notificationData.metadata
+        }
+      );
+
+      // We need to return the updated/created notification. 
+      // Since updateOrCreateNotificationForAppointment doesn't return it easily without re-reading,
+      // and it handles its own writeData, we just re-read to find it.
+      const updatedNotifications = readData<Notification>(COLLECTION);
+      const found = updatedNotifications.find(n => 
+        n.userId === notificationData.userId && 
+        n.metadata?.appointmentId === notificationData.metadata?.appointmentId
+      );
+
+      return res.status(201).json({
+        success: true,
+        message: "Notification processed successfully",
+        data: found,
       });
     }
 

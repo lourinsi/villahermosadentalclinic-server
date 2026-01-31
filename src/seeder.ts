@@ -603,35 +603,8 @@ function generateNotifications(patients: Patient[], staff: Staff[], appointments
   
   // 1. Admin notifications
   if (admin) {
-    // New patient registrations
-    patients.slice(0, 5).forEach(p => {
-      notifications.push({
-        userId: admin.id || "",
-        title: "New Patient Registration",
-        message: `A new patient, ${p.firstName} ${p.lastName}, has registered on the portal.`,
-        type: "system",
-        isRead: Math.random() > 0.5,
-        createdAt: new Date().toISOString(),
-      });
-    });
-    
-    // Cancellation requests
-    appointments.filter(a => a.status === "pending").slice(0, 3).forEach(a => {
-      notifications.push({
-        userId: admin.id || "",
-        title: "Appointment Request",
-        message: `${a.patientName} has requested an appointment for ${APPOINTMENT_TYPES[a.type || 0]} on ${a.date}.`,
-        type: "appointment",
-        isRead: false,
-        createdAt: new Date().toISOString(),
-        metadata: {
-          appointmentId: a.id,
-          currentStatus: a.status,
-          patientName: a.patientName,
-          isRequest: ["pending", "tentative", "To Pay"].includes(a.status || '')
-        }
-      });
-    });
+    // New patient registrations - Handled by API, but we can add some extra ones if we want
+    // We'll keep these as examples of system notifications not tied to a specific action
     
     // Payment alerts
     notifications.push({
@@ -655,47 +628,7 @@ function generateNotifications(patients: Patient[], staff: Staff[], appointments
   }
   
   // 2. Doctor notifications
-  doctors.forEach(doc => {
-    const docAppointments = appointments.filter(a => a.doctor === doc.name);
-    
-    // New Appointment Requests (pending, tentative, To Pay)
-    const requests = docAppointments.filter(a => ["pending", "tentative", "To Pay"].includes(a.status || ''));
-    requests.forEach(a => {
-      notifications.push({
-        userId: doc.id || "",
-        title: "New Appointment Request",
-        message: `${a.patientName} has a ${a.status} appointment for ${APPOINTMENT_TYPES[a.type || 0]} on ${a.date} at ${a.time}.`,
-        type: "appointment",
-        isRead: false,
-        createdAt: new Date().toISOString(),
-        metadata: {
-          appointmentId: a.id,
-          currentStatus: a.status,
-          patientName: a.patientName,
-          isRequest: true
-        }
-      });
-    });
-
-    // Upcoming appointments (confirmed, scheduled)
-    const upcoming = docAppointments.filter(a => ["confirmed", "scheduled"].includes(a.status || ''));
-    upcoming.slice(0, 5).forEach(a => {
-      notifications.push({
-        userId: doc.id || "",
-        title: "Upcoming Appointment",
-        message: `You have an appointment with ${a.patientName} for ${APPOINTMENT_TYPES[a.type || 0]} today at ${a.time}.`,
-        type: "appointment",
-        isRead: Math.random() > 0.3,
-        createdAt: new Date().toISOString(),
-        metadata: {
-          appointmentId: a.id,
-          currentStatus: a.status,
-          patientName: a.patientName,
-          isRequest: false
-        }
-      });
-    });
-  });
+  // Handled by API during appointment creation
   
   // 3. Patient notifications
   const testPatient = patients.find(p => p.email === "test@patient.com");
@@ -705,27 +638,6 @@ function generateNotifications(patients: Patient[], staff: Staff[], appointments
   }
 
   notificationPatients.forEach(p => {
-    const pAppointments = appointments.filter(a => a.patientId === p.id);
-    
-    pAppointments.forEach(a => {
-      const isRequest = ["pending", "tentative", "To Pay"].includes(a.status || '');
-      notifications.push({
-        userId: p.id || "",
-        title: isRequest ? "Appointment Request Received" : "Appointment Confirmation",
-        message: isRequest 
-          ? `Your request for ${APPOINTMENT_TYPES[a.type || 0]} on ${a.date} at ${a.time} is ${a.status}.`
-          : `Your appointment for ${APPOINTMENT_TYPES[a.type || 0]} on ${a.date} at ${a.time} has been ${a.status}.`,
-        type: "appointment",
-        isRead: Math.random() > 0.5,
-        createdAt: new Date().toISOString(),
-        metadata: {
-          appointmentId: a.id,
-          currentStatus: a.status,
-          isRequest: isRequest
-        }
-      });
-    });
-    
     notifications.push({
       userId: p.id || "",
       title: "Welcome to Villahermosa Dental Clinic",
