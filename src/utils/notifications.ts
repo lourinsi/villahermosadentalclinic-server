@@ -96,28 +96,22 @@ export const notifyAdmin = (
   type: NotificationType,
   metadata?: Notification["metadata"]
 ) => {
-  const staff = readData<any>("staff");
-  const adminIds = new Set<string>();
-  adminIds.add("admin"); // The literal admin user
+  // Only notify the literal "admin" user for cross-doctor/admin-level notifications.
+  // Previously we included staff members with roles like "lead dentist" or "manager",
+  // which caused doctors to receive admin/third-person notifications. The requirement
+  // is that only the admin user receives these multi-doctor notifications.
+  const adminUserId = "admin";
 
-  staff.filter((s: any) => 
-    s.role?.toLowerCase().includes("manager") || 
-    s.role?.toLowerCase().includes("admin") ||
-    s.role?.toLowerCase().includes("lead dentist")
-  ).forEach((s: any) => adminIds.add(s.id));
-
-  adminIds.forEach(userId => {
-    if (metadata?.appointmentId) {
-      updateOrCreateNotificationForAppointment(userId, metadata.appointmentId, {
-        title,
-        message,
-        type,
-        metadata
-      });
-    } else {
-      createNotification(userId, title, message, type, metadata);
-    }
-  });
+  if (metadata?.appointmentId) {
+    updateOrCreateNotificationForAppointment(adminUserId, metadata.appointmentId, {
+      title,
+      message,
+      type,
+      metadata,
+    });
+  } else {
+    createNotification(adminUserId, title, message, type, metadata);
+  }
 };
 
 /**
@@ -185,14 +179,9 @@ export const notifyAppointmentChange = (
   }
 
   // 3. Identify Admins
-  const staff = readData<any>("staff");
-  const adminUserIds = new Set<string>();
-  adminUserIds.add("admin"); // The literal admin user
-  staff.filter((s: any) => 
-    s.role?.toLowerCase().includes("manager") || 
-    s.role?.toLowerCase().includes("admin") ||
-    s.role?.toLowerCase().includes("lead dentist")
-  ).forEach((s: any) => adminUserIds.add(s.id));
+  // Only the literal "admin" user should receive cross-doctor/admin notifications.
+  // Avoid notifying staff members (e.g. lead dentists) with third-person admin messages.
+  const adminUserIds = new Set<string>(["admin"]);
 
   adminUserIds.forEach(adminId => {
     // If the admin is also the assigned doctor, we prefer the "Doctor" specific message

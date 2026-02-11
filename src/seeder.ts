@@ -528,14 +528,28 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
     const appointmentTypeIndex = getRandomInt(0, APPOINTMENT_TYPES.length - 1);
     const customType = appointmentTypeIndex === APPOINTMENT_TYPES.length - 1 ? "Custom user-defined procedure" : undefined;
     
-    const status = (isPast ? "completed" : getRandomElement(["pending", "tentative", "To Pay", "confirmed", "scheduled"])) as any;
-    
+    // Choose status, and then derive a consistent paymentStatus
+    let status = (isPast ? "completed" : getRandomElement(["pending", "tentative", "To Pay", "confirmed", "scheduled"])) as any;
     let paymentStatus: "paid" | "unpaid" | "half-paid" = "unpaid";
-    if (status === "completed") paymentStatus = "paid";
-    else if (status === "pending") paymentStatus = "unpaid";
-    else if (status === "tentative") paymentStatus = "half-paid";
-    else if (status === "To Pay") paymentStatus = "unpaid";
-    else paymentStatus = Math.random() > 0.3 ? "paid" : "unpaid";
+
+    if (status === "completed") {
+      paymentStatus = "paid";
+    } else if (status === "tentative") {
+      // tentative == reserved (partial payment)
+      paymentStatus = "half-paid";
+    } else if (status === "pending") {
+      paymentStatus = "unpaid";
+    } else if (status === "To Pay") {
+      // To Pay means pay at clinic — keep unpaid but status stays as To Pay
+      paymentStatus = "unpaid";
+    } else {
+      // scheduled/confirmed — randomly decide if paid or unpaid
+      paymentStatus = Math.random() > 0.5 ? "paid" : "unpaid";
+      // If unpaid for scheduled/confirmed, prefer marking as 'To Pay' occasionally
+      if (paymentStatus === "unpaid" && Math.random() > 0.8) {
+        status = "To Pay";
+      }
+    }
 
     const price = [1500, 500, 1200, 5000, 1500, 3000][getRandomInt(0, 5)] || 1000;
     let totalPaid = 0;
@@ -553,8 +567,8 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
       customType: customType,
       doctor: doctorsList.length > 0 ? getRandomElement(doctorsList) : "",
       price: price,
-      status: status,
-      paymentStatus: paymentStatus,
+  status: status,
+  paymentStatus: paymentStatus,
       totalPaid: totalPaid,
       balance: balance,
       notes: getRandomElement([
@@ -600,16 +614,10 @@ function generateNotifications(patients: Patient[], staff: Staff[], appointments
   const notifications: any[] = [];
   
   // 1. Literal Admin and Management staff notifications
-  const adminUserIds = new Set<string>();
-  adminUserIds.add("admin"); // The literal admin user
-  
-  staff.filter(s => 
-    s.role?.toLowerCase().includes("manager") || 
-    s.role?.toLowerCase().includes("admin") ||
-    s.role?.toLowerCase().includes("lead dentist")
-  ).forEach(s => {
-    if (s.id) adminUserIds.add(s.id);
-  });
+  // Only the literal "admin" user should receive cross-doctor/admin notifications.
+  // Do NOT add staff IDs here; otherwise doctors with roles like "Lead Dentist"
+  // would receive admin/third-person notifications.
+  const adminUserIds = new Set<string>(["admin"]);
 
   // Add some general system notifications for admins
   adminUserIds.forEach(adminId => {
@@ -641,7 +649,7 @@ function generateNotifications(patients: Patient[], staff: Staff[], appointments
   
   recentAppointments.forEach(apt => {
     const serviceName = getAppointmentTypeName(apt.type, apt.customType);
-    
+
     let statusText = apt.status || "updated";
     if (statusText === "scheduled" || statusText === "confirmed") statusText = "confirmed";
 
@@ -656,13 +664,16 @@ function generateNotifications(patients: Patient[], staff: Staff[], appointments
       }
     };
 
+    // All appointment notifications are type "appointment" (including "To Pay" which are requests)
+    const notificationType: NotificationType = "appointment";
+
     // Notification for Patient
     if (apt.patientId) {
       notifications.push({
         userId: apt.patientId,
         title: "Appointment Update",
         message: `Your appointment for ${serviceName} on ${apt.date} is now ${statusText}.`,
-        type: "appointment",
+        type: notificationType,
         isRead: Math.random() > 0.3,
         createdAt: getIsoDate(apt.createdAt),
         updatedAt: getIsoDate(apt.updatedAt),
@@ -683,7 +694,7 @@ function generateNotifications(patients: Patient[], staff: Staff[], appointments
         userId: assignedDoctor.id,
         title: "Appointment Update",
         message: `Appointment with ${apt.patientName} for ${serviceName} on ${apt.date} is now ${statusText}.`,
-        type: "appointment",
+        type: notificationType,
         isRead: Math.random() > 0.3,
         createdAt: getIsoDate(apt.createdAt),
         updatedAt: getIsoDate(apt.updatedAt),
@@ -704,7 +715,7 @@ function generateNotifications(patients: Patient[], staff: Staff[], appointments
 
       const doctorName = apt.doctor || "The doctor";
       let adminMessage = `${doctorName} has updated the appointment for ${apt.patientName} (${serviceName}) on ${apt.date}.`;
-      
+
       if (apt.status === "confirmed" || apt.status === "scheduled") {
         adminMessage = `${doctorName} has accepted the appointment for ${apt.patientName} (${serviceName}) on ${apt.date}.`;
       } else if (apt.status === "cancelled") {
@@ -717,7 +728,7 @@ function generateNotifications(patients: Patient[], staff: Staff[], appointments
         userId: adminId,
         title: "Appointment Update",
         message: adminMessage,
-        type: "appointment",
+        type: notificationType,
         isRead: Math.random() > 0.3,
         createdAt: getIsoDate(apt.createdAt),
         updatedAt: getIsoDate(apt.updatedAt),

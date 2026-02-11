@@ -14,6 +14,9 @@ export interface Notification {
     currentStatus?: string;
     patientName?: string;
     isRequest?: boolean;
+    isDoctorView?: boolean;
+    isAdminView?: boolean;
+    isPatientView?: boolean;
   };
   updatedAt?: string;
   deleted?: boolean;
