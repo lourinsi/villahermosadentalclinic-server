@@ -33,6 +33,35 @@ export const addAppointment = (req: Request, res: Response<ApiResponse<Appointme
     }
 
     // Check for conflicts
+    // First, check for same-patient overlap (patient cannot be double-booked)
+    const timeToMinutes = (timeStr: string): number => {
+      if (!timeStr) return 0;
+      const [hours, minutes] = timeStr.split(":").map(Number);
+      return (hours || 0) * 60 + (minutes || 0);
+    };
+
+    const newStart = timeToMinutes(appointmentData.time);
+    const newDuration = Number(appointmentData.duration) || 60;
+    const newEnd = newStart + newDuration;
+
+    const hasOverlapSamePatient = appointments.some(apt => {
+      if (apt.deleted || apt.id === appointmentData.id || apt.date !== appointmentData.date) return false;
+      if (apt.patientId === appointmentData.patientId) {
+        const aptStart = timeToMinutes(apt.time);
+        const aptEnd = aptStart + (Number(apt.duration) || 60);
+        return newStart < aptEnd && newEnd > aptStart;
+      }
+      return false;
+    });
+
+    if (hasOverlapSamePatient) {
+      return res.status(409).json({
+        success: false,
+        message: "Conflict detected: Patient has another appointment during this time.",
+      });
+    }
+
+    // Then check doctor-specific conflicts (existing behavior)
     if (hasConflict(
       appointments, 
       appointmentData.date, 

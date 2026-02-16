@@ -23,11 +23,10 @@ export const hasConflict = (
 
   return appointments.some((apt) => {
     if (
-      apt.deleted || 
-      apt.id === excludeId || 
-      apt.date !== newDate || 
-      apt.status === "cancelled" || 
-      apt.paymentStatus === "unpaid" ||
+      apt.deleted ||
+      apt.id === excludeId ||
+      apt.date !== newDate ||
+      apt.status === "cancelled" ||
       apt.status === "pending" // Pending appointments in cart don't block others until paid/scheduled
     ) {
       return false;
