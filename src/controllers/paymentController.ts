@@ -4,7 +4,7 @@ import { readData, writeData } from "../utils/storage";
 import { hasConflict } from "../utils/appointment-helpers";
 import { Appointment } from "../types/appointment";
 import { Patient } from "../types/patient";
-import { createNotification, notifyAdmin } from "../utils/notifications";
+import { createNotification, notifyAdmin, updateOrCreateNotificationForAppointment } from "../utils/notifications";
 import { getAppointmentTypeName } from "../utils/appointment-types";
 
 const COLLECTION = "payments";
@@ -135,13 +135,25 @@ export const createPayment = (req: Request, res: Response<ApiResponse<any>>) => 
         message = `Your payment of ₱${payAmount} was successful. Your appointment on ${apt.date} is now scheduled.`;
       }
 
-      createNotification(
-        apt.patientId,
-        "Appointment Status Update",
+      // Use appointment-scoped updater so payment notifications are tied to the
+      // appointment notification and get updated when the appointment changes.
+      const pid = apt.patientId;
+      const isReq = !!(apt.status && ['To Pay', 'tentative'].includes(apt.status));
+      if (pid) {
+  updateOrCreateNotificationForAppointment(pid, String(apt.id), {
+        title: "Appointment Status Update",
         message,
-        "appointment",
-        { appointmentId: apt.id, currentStatus: apt.status }
-      );
+        type: "appointment",
+        metadata: {
+          appointmentId: apt.id,
+          currentStatus: apt.status,
+          patientName: apt.patientName,
+          appointmentDate: apt.date,
+          appointmentTime: apt.time,
+          isRequest: isReq
+        }
+        });
+      }
 
       apt.updatedAt = new Date();
       appointments[idx] = apt;

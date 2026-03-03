@@ -270,12 +270,27 @@ export const updateAppointment = (
       });
     }
 
+    const oldAppointment = appointments[appointmentIndex];
+
+    console.log("[APPOINTMENT UPDATE] appointmentId=", id);
+    console.log("[APPOINTMENT UPDATE] oldAppointment=", JSON.stringify(oldAppointment, null, 2));
+    console.log("[APPOINTMENT UPDATE] updates=", JSON.stringify(updates, null, 2));
+
     const updatedAppointment: Appointment = {
-      ...appointments[appointmentIndex],
+      ...oldAppointment,
       ...updates,
-      id: appointments[appointmentIndex].id, // Prevent ID change
+      id: oldAppointment.id, // Prevent ID change
       updatedAt: new Date(),
     };
+
+    // Build a changedFields map early for logging and later notification use
+    const changedFields: { [key: string]: any } = {};
+    ['date', 'time', 'duration', 'doctor', 'type', 'customType', 'price', 'notes', 'status'].forEach((f) => {
+      if ((updates as any)[f] !== undefined) changedFields[f] = (updates as any)[f];
+    });
+
+    console.log("[APPOINTMENT UPDATE] updatedAppointment=", JSON.stringify(updatedAppointment, null, 2));
+    console.log("[APPOINTMENT UPDATE] changedFields=", JSON.stringify(changedFields, null, 2));
 
     // Check for conflicts if date, time, duration, or doctor changed
     if (
@@ -306,6 +321,26 @@ export const updateAppointment = (
     // Notify users if status changed
     if (updates.status && updates.status !== oldStatus) {
       notifyAppointmentChange(updatedAppointment, 'updated', { oldStatus });
+    } else {
+      // Also notify when the appointment details are changed (reschedule or edit)
+      // so notifications reflect the new date/time/doctor/duration/type.
+      const detailFieldsChanged = (
+        updates.date ||
+        updates.time ||
+        updates.duration !== undefined ||
+        updates.doctor ||
+        updates.type !== undefined ||
+        updates.customType
+      );
+
+      if (detailFieldsChanged) {
+        // Compute which fields changed and include them in the notification metadata
+        const changedFields: { [key: string]: any } = {};
+        ['date', 'time', 'duration', 'doctor', 'type', 'customType', 'price', 'notes'].forEach((f) => {
+          if ((updates as any)[f] !== undefined) changedFields[f] = (updates as any)[f];
+        });
+        notifyAppointmentChange(updatedAppointment, 'updated', { oldStatus, changedFields });
+      }
     }
 
     res.json({

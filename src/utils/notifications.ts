@@ -57,6 +57,7 @@ export const updateOrCreateNotificationForAppointment = (
 
   if (existingNotificationIndex !== -1) {
     // Update existing notification to "look new" but keep the same entry
+    console.log(`[notifications] Updating notification for user=${userId} appointment=${appointmentId} - metadata=`, details.metadata);
     notifications[existingNotificationIndex] = {
       ...notifications[existingNotificationIndex],
       title: details.title,
@@ -68,6 +69,7 @@ export const updateOrCreateNotificationForAppointment = (
       deleted: false, // Ensure it's not hidden if it was previously deleted
     };
     writeData(COLLECTION, notifications);
+    console.log(`[notifications] Updated notification id=${notifications[existingNotificationIndex].id} updatedAt=${notifications[existingNotificationIndex].updatedAt}`);
   } else {
     // Create new notification if none exists for this user/appointment
     const newNotification: Notification = {
@@ -84,6 +86,7 @@ export const updateOrCreateNotificationForAppointment = (
     };
     notifications.push(newNotification);
     writeData(COLLECTION, notifications);
+    console.log(`[notifications] Created notification id=${newNotification.id} for user=${userId} appointment=${appointmentId}`);
   }
 };
 
@@ -122,7 +125,7 @@ export const notifyAdmin = (
 export const notifyAppointmentChange = (
   appointment: any,
   actionType: 'created' | 'updated' | 'public_request',
-  context?: { oldStatus?: string }
+  context?: { oldStatus?: string; changedFields?: { [key: string]: any } }
 ) => {
   // 0. Skip notifications for "pending" status
   // The user requested that pending bookings should not be a notification.
@@ -151,6 +154,14 @@ export const notifyAppointmentChange = (
     } else if (actionType === 'public_request') {
       patientTitle = "Appointment Request Received";
       patientMessage = `Your request for a ${serviceName} appointment on ${appointment.date} at ${appointment.time} has been received and is pending confirmation.`;
+    } else if (actionType === 'updated') {
+      // If the appointment was rescheduled (date or time changed), give a clearer message to the patient
+      const changed = context?.changedFields || {};
+      const rescheduled = changed.date !== undefined || changed.time !== undefined;
+      if (rescheduled) {
+        patientTitle = "Appointment Updated";
+        patientMessage = `Your appointment for ${serviceName} has been updated to ${appointment.date} at ${appointment.time}.`;
+      }
     }
 
     recipients.set(appointment.patientId, { title: patientTitle, message: patientMessage, isPatient: true });
@@ -219,6 +230,7 @@ export const notifyAppointmentChange = (
   });
 
   // Now send all notifications (Deduplicated by recipient)
+  console.log(`[notifications] notifyAppointmentChange action=${actionType} appointment=${appointment.id} recipients=${Array.from(recipients.keys()).join(',')}`);
   recipients.forEach((data, userId) => {
     updateOrCreateNotificationForAppointment(userId, appointment.id, {
       title: data.title,
@@ -228,10 +240,13 @@ export const notifyAppointmentChange = (
         appointmentId: appointment.id,
         currentStatus: appointment.status,
         patientName: appointment.patientName,
+        appointmentDate: appointment.date,
+        appointmentTime: appointment.time,
         isRequest: isRequest,
         isDoctorView: data.isDoctor,
         isAdminView: data.isAdmin,
-        isPatientView: data.isPatient
+        isPatientView: data.isPatient,
+        changedFields: context?.changedFields
       }
     });
   });

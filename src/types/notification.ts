@@ -13,6 +13,9 @@ export interface Notification {
     appointmentId?: string;
     currentStatus?: string;
     patientName?: string;
+  appointmentDate?: string;
+  appointmentTime?: string;
+  changedFields?: { [key: string]: any };
     isRequest?: boolean;
     isDoctorView?: boolean;
     isAdminView?: boolean;
