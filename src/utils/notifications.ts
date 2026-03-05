@@ -144,7 +144,7 @@ export const notifyAppointmentChange = (
   if (appointment.patientId) {
     let patientTitle = "Appointment Update";
     let statusText = appointment.status;
-    if (statusText === "scheduled" || statusText === "confirmed") statusText = "confirmed";
+    if (statusText === "scheduled" || statusText === "confirmed") statusText = "scheduled";
     
     let patientMessage = `Your appointment for ${serviceName} on ${appointment.date} is now ${statusText}.`;
 
@@ -176,7 +176,7 @@ export const notifyAppointmentChange = (
       assignedDoctorId = doctor.id;
       let doctorTitle = isRequest ? "New Appointment Request" : "Appointment Update";
       let statusText = appointment.status;
-      if (statusText === "scheduled" || statusText === "confirmed") statusText = "confirmed";
+      if (statusText === "scheduled" || statusText === "confirmed") statusText = "scheduled";
       
       let doctorMessage = `Appointment with ${appointment.patientName} for ${serviceName} on ${appointment.date} is now ${statusText}.`;
 
@@ -201,7 +201,7 @@ export const notifyAppointmentChange = (
 
     let adminTitle = isRequest ? "New Appointment Request" : "Appointment Update";
     let statusText = appointment.status;
-    if (statusText === "scheduled" || statusText === "confirmed") statusText = "confirmed";
+    if (statusText === "scheduled" || statusText === "confirmed") statusText = "scheduled";
     
     let adminMessage = `The appointment for ${appointment.patientName} (${serviceName}) on ${appointment.date} is now ${statusText}.`;
 

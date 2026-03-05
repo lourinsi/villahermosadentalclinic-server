@@ -486,7 +486,7 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
         notes: "Pay at clinic request."
     });
     // 2 in Bookings (confirmed/scheduled, paid)
-    generatedAppointments.push({
+  generatedAppointments.push({
         patientId: testPatient.id || "",
         patientName: testPatient.name,
         date: new Date(now.getTime() + 86400000 * 2).toISOString().split("T")[0],
@@ -494,7 +494,7 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
         type: 1,
         doctor: testDoctorName, // Assign to test doctor
         price: 500,
-        status: "confirmed",
+    status: "scheduled",
         paymentStatus: "paid",
         balance: 0,
         totalPaid: 500,
@@ -649,11 +649,12 @@ function generateNotifications(patients: Patient[], staff: Staff[], appointments
   
   recentAppointments.forEach(apt => {
     const serviceName = getAppointmentTypeName(apt.type, apt.customType);
+    const aptStatus = (apt.status as string);
 
-    let statusText = apt.status || "updated";
-    if (statusText === "scheduled" || statusText === "confirmed") statusText = "confirmed";
+    let statusText = aptStatus || "updated";
+    if (statusText === "scheduled" || statusText === "confirmed") statusText = "scheduled";
 
-    const isRequest = ["pending", "tentative", "To Pay"].includes(apt.status || "");
+    const isRequest = ["pending", "tentative", "To Pay"].includes(aptStatus || "");
 
     const getIsoDate = (date: any) => {
       if (!date) return new Date().toISOString();
@@ -679,7 +680,7 @@ function generateNotifications(patients: Patient[], staff: Staff[], appointments
         updatedAt: getIsoDate(apt.updatedAt),
         metadata: {
           appointmentId: apt.id,
-          currentStatus: apt.status,
+          currentStatus: aptStatus,
           patientName: apt.patientName,
           isRequest: isRequest,
           isPatientView: true
@@ -700,7 +701,7 @@ function generateNotifications(patients: Patient[], staff: Staff[], appointments
         updatedAt: getIsoDate(apt.updatedAt),
         metadata: {
           appointmentId: apt.id,
-          currentStatus: apt.status,
+          currentStatus: aptStatus,
           patientName: apt.patientName,
           isRequest: isRequest,
           isDoctorView: true
@@ -716,11 +717,11 @@ function generateNotifications(patients: Patient[], staff: Staff[], appointments
       const doctorName = apt.doctor || "The doctor";
       let adminMessage = `${doctorName} has updated the appointment for ${apt.patientName} (${serviceName}) on ${apt.date}.`;
 
-      if (apt.status === "confirmed" || apt.status === "scheduled") {
+      if (aptStatus === "scheduled" || aptStatus === "confirmed") {
         adminMessage = `${doctorName} has accepted the appointment for ${apt.patientName} (${serviceName}) on ${apt.date}.`;
-      } else if (apt.status === "cancelled") {
+      } else if (aptStatus === "cancelled") {
         adminMessage = `${doctorName} has cancelled the appointment for ${apt.patientName} (${serviceName}) on ${apt.date}.`;
-      } else if (apt.status === "tentative") {
+      } else if (aptStatus === "tentative") {
         adminMessage = `${apt.patientName} has made a partial payment for the ${serviceName} appointment on ${apt.date}.`;
       }
 
@@ -734,7 +735,7 @@ function generateNotifications(patients: Patient[], staff: Staff[], appointments
         updatedAt: getIsoDate(apt.updatedAt),
         metadata: {
           appointmentId: apt.id,
-          currentStatus: apt.status,
+          currentStatus: aptStatus,
           patientName: apt.patientName,
           isRequest: isRequest,
           isAdminView: true

@@ -7,11 +7,12 @@ export interface Appointment {
   type: number; // Index referring to APPOINTMENT_TYPES array
   customType?: string; // Used when type is 'Other'
   price?: number;
+  discount?: number; // numeric amount discounted from price
   doctor: string;
   duration?: number; // in minutes
   notes?: string;
   serviceType?: string;
-  status?: "scheduled" | "confirmed" | "pending" | "tentative" | "completed" | "cancelled" | "To Pay";
+  status?: "scheduled" | "pending" | "tentative" | "completed" | "cancelled" | "To Pay";
   paymentStatus?: "paid" | "unpaid" | "overdue" | "half-paid" | "over-paid";
   balance?: number;
   totalPaid?: number;

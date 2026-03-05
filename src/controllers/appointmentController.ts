@@ -88,6 +88,8 @@ export const addAppointment = (req: Request, res: Response<ApiResponse<Appointme
     const basePrice = getAppointmentPrice(appointmentData.type);
 
     // Create appointment object with ID and timestamps
+    const discount = Number(appointmentData.discount) || 0;
+    const price = appointmentData.price || basePrice;
     const newAppointment: Appointment = {
       id: `apt_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
       patientId: appointmentData.patientId,
@@ -96,13 +98,14 @@ export const addAppointment = (req: Request, res: Response<ApiResponse<Appointme
       time: appointmentData.time,
       type: appointmentData.type,
       customType: appointmentData.customType || "",
-      price: appointmentData.price || basePrice,
+      price,
+      discount,
       doctor: appointmentData.doctor || "",
       duration: appointmentData.duration || 60, // default to 60 minutes
       notes: appointmentData.notes || "",
       status: appointmentData.status || "scheduled",
       paymentStatus: appointmentData.paymentStatus || "unpaid",
-      balance: appointmentData.balance != null ? appointmentData.balance : (appointmentData.price || basePrice),
+      balance: appointmentData.balance != null ? appointmentData.balance : Math.max(0, price - discount),
       createdAt: new Date(),
       updatedAt: new Date(),
       deleted: false,
@@ -314,6 +317,13 @@ export const updateAppointment = (
       }
     }
 
+    // Recalculate balance if price or discount changed
+    if ((updates as any).price !== undefined || (updates as any).discount !== undefined) {
+      const price = (updatedAppointment.price || 0);
+      const discount = (updatedAppointment as any).discount || 0;
+      (updatedAppointment as any).balance = Math.max(0, price - discount - (updatedAppointment.totalPaid || 0));
+    }
+
     const oldStatus = appointments[appointmentIndex].status;
     appointments[appointmentIndex] = updatedAppointment;
     writeData(COLLECTION, appointments);
@@ -464,6 +474,8 @@ export const bookPublicAppointment = async (req: Request, res: Response<ApiRespo
     const basePrice = getAppointmentPrice(type);
 
     // Create appointment
+    const discount = 0;
+    const price = getAppointmentPrice(type);
     const newAppointment: Appointment = {
       id: `apt_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
       patientId: patient.id!,
@@ -473,13 +485,14 @@ export const bookPublicAppointment = async (req: Request, res: Response<ApiRespo
       duration: duration || 30,
       type,
       customType: customType || "",
-      price: basePrice,
+      price,
+      discount,
       doctor: doctor || "",
       notes: notes || "",
       serviceType: serviceType || "",
       status: "pending", // Public bookings are pending by default
       paymentStatus: "unpaid",
-      balance: basePrice,
+      balance: Math.max(0, price - discount),
       createdAt: new Date(),
       updatedAt: new Date(),
       deleted: false,
