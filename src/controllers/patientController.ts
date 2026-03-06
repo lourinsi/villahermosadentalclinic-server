@@ -10,6 +10,15 @@ const APPOINTMENT_COLLECTION = "appointments";
 
 export const addPatient = async (req: Request, res: Response<ApiResponse<Patient>>) => {
   try {
+    // role check (middleware should already enforce this)
+    const user = (req as any).user;
+    if (user) {
+      console.log("[PATIENT CREATE] triggered by user", user.username, "role", user.role);
+      if (user.role === "patient") {
+        return res.status(403).json({ success: false, message: "Patients are not allowed to add other patients" });
+      }
+    }
+
     const patients = readData<Patient>(COLLECTION);
     console.log("[PATIENT CREATE] Received request body:", req.body);
     const patientData: Patient = req.body;
