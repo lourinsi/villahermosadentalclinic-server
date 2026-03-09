@@ -3,10 +3,14 @@
 // Run with: npm run seed
 
 import { Patient } from "./types/patient";
+import bcrypt from "bcryptjs";
 import { Appointment } from "./types/appointment";
 import { Staff } from "./types/staff";
 import { InventoryItem } from "./types/inventory";
 import { FinanceRecord } from "./types/finance";
+import { PaymentMethod } from "./types/paymentMethod";
+import { Notification, NotificationType } from "./types/notification";
+import { getAppointmentTypeName } from "./utils/appointment-types";
 
 
 // Sample data for seeding
@@ -57,16 +61,19 @@ const lastNames = [
 ];
 
 
-const appointmentTypes = ["cleaning", "checkup", "filling", "root Canal", "extraction", "whitening"];
+const APPOINTMENT_TYPES = [
+  "Routine Cleaning",
+  "Checkup",
+  "Filling",
+  "Root Canal",
+  "Extraction",
+  "Whitening",
+  "Other",
+];
 
 const statuses = ["active", "inactive", "overdue"];
 
 const insurances = ["Blue Cross", "Aetna", "Delta Dental", "Cigna", "United Healthcare", "None"];
-
-const staffRoles = ["Lead Dentist", "Associate Dentist", "Pediatric Dentist", "Dental Hygienist", "Dental Assistant", "Office Manager", "Receptionist"];
-const departments = ["Dentistry", "Hygiene", "Assistance", "Administration"];
-const employmentTypes = ["Full-time", "Part-time", "Contract"];
-const specializations = ["General Dentistry", "Orthodontics", "Pediatric Dentistry", "Dental Hygiene", "Chair-side Assistance", "Office Management", "Patient Relations"];
 
 const inventoryItemsData: Omit<InventoryItem, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] = [
   { item: "Dental Anesthetic (Lidocaine)", quantity: 45, unit: "vials", costPerUnit: 12.50, totalValue: 562.50, supplier: "DentMed Supply", lastOrdered: "2024-01-15" },
@@ -81,6 +88,22 @@ const inventoryItemsData: Omit<InventoryItem, "id" | "createdAt" | "updatedAt" |
 
 const staffMembersData: Omit<Staff, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] = [
   {
+    name: "Dr. Test Doctor",
+    role: "Lead Dentist",
+    department: "Dentistry",
+    email: "test.doctor@villahermosa.com",
+    phone: "+1 (555) 000-0000",
+    hireDate: "2024-01-01",
+    baseSalary: 15000,
+    status: "active",
+    employmentType: "Full-time",
+    specialization: "General Dentistry",
+    licenseNumber: "DDS-00000",
+    password: bcrypt.hashSync("doctor123", 10),
+    profilePicture: "https://images.unsplash.com/photo-1622253692010-333f2da6031d?q=80&w=200&h=200&auto=format&fit=crop",
+    bio: "Test doctor for system validation."
+  },
+  {
     name: "Dr. Sarah Johnson",
     role: "Lead Dentist",
     department: "Dentistry",
@@ -91,7 +114,10 @@ const staffMembersData: Omit<Staff, "id" | "createdAt" | "updatedAt" | "deleted"
     status: "active",
     employmentType: "Full-time",
     specialization: "General Dentistry",
-    licenseNumber: "DDS-12345"
+    licenseNumber: "DDS-12345",
+    password: bcrypt.hashSync("doctor123", 10),
+    profilePicture: "https://images.unsplash.com/photo-1559839734-2b71ea197ec2?q=80&w=200&h=200&auto=format&fit=crop",
+    bio: "Dr. Villahermosa has over 15 years of experience in general dentistry, focusing on preventive care and patient education."
   },
   {
     name: "Dr. Michael Chen",
@@ -104,7 +130,10 @@ const staffMembersData: Omit<Staff, "id" | "createdAt" | "updatedAt" | "deleted"
     status: "active",
     employmentType: "Full-time",
     specialization: "Orthodontics",
-    licenseNumber: "DDS-23456"
+    licenseNumber: "DDS-23456",
+    password: bcrypt.hashSync("doctor123", 10),
+    profilePicture: "https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?q=80&w=200&h=200&auto=format&fit=crop",
+    bio: "Dr. Chen specializes in orthodontics and is passionate about creating beautiful smiles using the latest technology."
   },
   {
     name: "Dr. Emily Rodriguez",
@@ -117,7 +146,10 @@ const staffMembersData: Omit<Staff, "id" | "createdAt" | "updatedAt" | "deleted"
     status: "active",
     employmentType: "Full-time",
     specialization: "Pediatric Dentistry",
-    licenseNumber: "DDS-34567"
+    licenseNumber: "DDS-34567",
+    password: bcrypt.hashSync("doctor123", 10),
+    profilePicture: "https://images.unsplash.com/photo-1594824476967-48c8b964273f?q=80&w=200&h=200&auto=format&fit=crop",
+    bio: "Dr. Rodriguez loves working with children and aims to provide a comfortable and fun dental experience for her young patients."
   },
   {
     name: "Jessica Williams",
@@ -130,7 +162,8 @@ const staffMembersData: Omit<Staff, "id" | "createdAt" | "updatedAt" | "deleted"
     status: "active",
     employmentType: "Full-time",
     specialization: "Dental Hygiene",
-    licenseNumber: "RDH-45678"
+    licenseNumber: "RDH-45678",
+    password: bcrypt.hashSync("doctor123", 10)
   },
   {
     name: "Mark Thompson",
@@ -143,7 +176,8 @@ const staffMembersData: Omit<Staff, "id" | "createdAt" | "updatedAt" | "deleted"
     status: "active",
     employmentType: "Full-time",
     specialization: "Chair-side Assistance",
-    licenseNumber: "DA-56789"
+    licenseNumber: "DA-56789",
+    password: bcrypt.hashSync("doctor123", 10)
   },
   {
     name: "Lisa Martinez",
@@ -156,7 +190,8 @@ const staffMembersData: Omit<Staff, "id" | "createdAt" | "updatedAt" | "deleted"
     status: "active",
     employmentType: "Full-time",
     specialization: "Office Management",
-    licenseNumber: "N/A"
+    licenseNumber: "N/A",
+    password: bcrypt.hashSync("doctor123", 10)
   },
   {
     name: "Robert Davis",
@@ -169,8 +204,18 @@ const staffMembersData: Omit<Staff, "id" | "createdAt" | "updatedAt" | "deleted"
     status: "active",
     employmentType: "Part-time",
     specialization: "Patient Relations",
-    licenseNumber: "N/A"
+    licenseNumber: "N/A",
+    password: bcrypt.hashSync("doctor123", 10)
   }
+];
+
+const paymentMethodsData: Omit<PaymentMethod, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] = [
+  { name: "Credit Card", isActive: true },
+  { name: "Cash", isActive: true },
+  { name: "Debit Card", isActive: true },
+  { name: "Insurance", isActive: true },
+  { name: "Check", isActive: true },
+  { name: "Bank Transfer", isActive: true },
 ];
 
 const dentistStaffMembers = staffMembersData.filter(
@@ -190,10 +235,89 @@ function getRandomDate(startDate: Date, endDate: Date): Date {
   return new Date(startDate.getTime() + Math.random() * (endDate.getTime() - startDate.getTime()));
 }
 
+const toothSections = ["top", "bottom", "left", "right", "center"];
+const toothColors = ["blue", "red"];
+
+function generateRandomToothState(): Record<string, string> {
+    const state: Record<string, string> = { top: "none", bottom: "none", left: "none", right: "none", center: "none" };
+    const sectionsToColor = getRandomInt(1, 3);
+    for (let i = 0; i < sectionsToColor; i++) {
+        const randomSection = getRandomElement(toothSections);
+        state[randomSection] = getRandomElement(toothColors);
+    }
+    return state;
+}
+
+function generateRandomDentalChartData(): string {
+    const chartData: Record<number, Record<string, string>> = {};
+    const adultTeeth = [
+        18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28,
+        48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38
+    ];
+    const teethWithFindings = getRandomInt(3, 8);
+    for (let i = 0; i < teethWithFindings; i++) {
+        const randomTooth = getRandomElement(adultTeeth);
+        if (!chartData[randomTooth]) {
+            chartData[randomTooth] = generateRandomToothState();
+        }
+    }
+    return JSON.stringify(chartData);
+}
+
+function generateDentalCharts(patientLastVisit?: string): { date: string; data: string; isEmpty: boolean }[] {
+  const charts: { date: string; data: string; isEmpty: boolean }[] = [];
+    if (Math.random() < 0.5) {
+        return charts;
+    }
+
+    const chartCount = getRandomInt(1, 3);
+    const lastDate = patientLastVisit ? new Date(patientLastVisit) : new Date();
+    if (!patientLastVisit) {
+        lastDate.setFullYear(lastDate.getFullYear() - getRandomInt(0, 2));
+    }
+
+    for (let i = 0; i < chartCount; i++) {
+    charts.push({
+      date: lastDate.toISOString().split("T")[0],
+      data: generateRandomDentalChartData(),
+      isEmpty: false,
+    });
+        lastDate.setMonth(lastDate.getMonth() - getRandomInt(6, 12));
+    }
+
+    return charts.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+}
+
 function generatePatients(count: number = 25): Omit<Patient, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] {
   const generatedPatients: Omit<Patient, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] = [];
   const now = new Date();
   const oneYearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+
+  // Add a specific patient for testing
+  const testPatient: Omit<Patient, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt"> = {
+    name: "Test Patient",
+    firstName: "Test",
+    lastName: "Patient",
+    email: "test@patient.com",
+    phone: "09915341237",
+    password: bcrypt.hashSync("villahermosa123", 10),
+    dateOfBirth: "1990-01-01",
+    address: "123 Test St",
+    city: "Testville",
+    zipCode: "12345",
+    insurance: "None",
+    status: "active",
+    emergencyContact: "Test Emergency",
+    emergencyPhone: "0987654321",
+    allergies: "None",
+    medicalHistory: "None",
+    notes: "This is a test patient.",
+    isPrimary: true,
+    dentalCharts: [],
+    lastVisit: undefined,
+  };
+  generatedPatients.push(testPatient);
+
 
   for (let i = 0; i < count; i++) {
     const firstName = getRandomElement(firstNames);
@@ -203,13 +327,19 @@ function generatePatients(count: number = 25): Omit<Patient, "id" | "createdAt" 
     const dateOfBirth = new Date(getRandomInt(1960, 2005), getRandomInt(0, 11), getRandomInt(1, 28));
 
     const hasLastVisit = Math.random() > 0.2;
-    const lastVisitDate = hasLastVisit ? getRandomDate(oneYearAgo, now).toISOString().split("T")[0] : undefined;
+    const randomVisitDate = getRandomDate(oneYearAgo, now);
+    const lastVisitDate = hasLastVisit ? `${randomVisitDate.getFullYear()}-${(randomVisitDate.getMonth() + 1).toString().padStart(2, '0')}-${randomVisitDate.getDate().toString().padStart(2, '0')}` : undefined;
+    
+    const dentalCharts = generateDentalCharts(lastVisitDate);
 
     const patient: Omit<Patient, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt"> = {
+      name: `${firstName} ${lastName}`,
       firstName,
       lastName,
       email,
       phone,
+      password: bcrypt.hashSync("villahermosa123", 10),
+      isPrimary: true,
       dateOfBirth: dateOfBirth.toISOString().split("T")[0],
       address: `${getRandomInt(100, 9999)} ${getRandomElement(["Main", "Oak", "Elm", "Maple", "Pine", "Cedar"])} St, ${getRandomElement(["Springfield", "Shelbyville", "Capital City", "Metropolis", "Gotham"])}`,
       city: getRandomElement(["Springfield", "Shelbyville", "Capital City", "Metropolis", "Gotham"]),
@@ -221,6 +351,7 @@ function generatePatients(count: number = 25): Omit<Patient, "id" | "createdAt" 
       allergies: Math.random() > 0.7 ? getRandomElement(["Penicillin", "Latex", "Iodine", "None"]) : "None",
       medicalHistory: getRandomElement(["Diabetes", "Hypertension", "Asthma", "None"]),
       notes: getRandomElement(["VIP patient", "Referred by friend", "Online inquiry", ""]),
+      dentalCharts: dentalCharts,
       lastVisit: lastVisitDate,
     };
 
@@ -228,6 +359,50 @@ function generatePatients(count: number = 25): Omit<Patient, "id" | "createdAt" 
   }
 
   return generatedPatients;
+}
+
+function generateDependents(parent: Patient, count: number): Omit<Patient, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] {
+  const dependents: Omit<Patient, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] = [];
+  const now = new Date();
+  const oneYearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+
+  for (let i = 0; i < count; i++) {
+    const firstName = getRandomElement(firstNames);
+    const lastName = parent.lastName || getRandomElement(lastNames);
+    const relationship = getRandomElement(["Spouse", "Child", "Parent", "Sibling"]);
+    const dateOfBirth = new Date(getRandomInt(1970, 2020), getRandomInt(0, 11), getRandomInt(1, 28));
+    
+    const hasLastVisit = Math.random() > 0.5;
+    const randomVisitDate = getRandomDate(oneYearAgo, now);
+    const lastVisitDate = hasLastVisit ? `${randomVisitDate.getFullYear()}-${(randomVisitDate.getMonth() + 1).toString().padStart(2, '0')}-${randomVisitDate.getDate().toString().padStart(2, '0')}` : undefined;
+    
+    const dentalCharts = generateDentalCharts(lastVisitDate);
+
+    dependents.push({
+      name: `${firstName} ${lastName}`,
+      firstName,
+      lastName,
+      email: parent.email, // Inherited
+      phone: parent.phone, // Inherited
+      parentId: parent.id,
+      isPrimary: false,
+      relationship,
+      dateOfBirth: dateOfBirth.toISOString().split("T")[0],
+      address: parent.address,
+      city: parent.city,
+      zipCode: parent.zipCode,
+      insurance: parent.insurance,
+      status: "active",
+      emergencyContact: parent.name,
+      emergencyPhone: parent.phone,
+      allergies: Math.random() > 0.8 ? getRandomElement(["Penicillin", "Latex", "Iodine", "None"]) : "None",
+      medicalHistory: "None",
+      notes: `Dependent of ${parent.name}`,
+      dentalCharts: dentalCharts,
+      lastVisit: lastVisitDate,
+    });
+  }
+  return dependents;
 }
 
 function generateAppointments(patientsList: Patient[], doctorsList: string[], count: number = 60): Omit<Appointment, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] {
@@ -243,14 +418,103 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
         patientId: patient.id || "",
         patientName: `${patient.firstName} ${patient.lastName}`,
         date: patient.lastVisit,
-        time: `${String(getRandomInt(8, 17)).padStart(2, "0")}:${String(getRandomElement([0, 15, 30, 45])).padStart(2, "0")}`,
-        type: getRandomElement(appointmentTypes),
+        time: `${String(getRandomInt(8, 17)).padStart(2, "0")}:${String(getRandomElement([0, 30])).padStart(2, "0")}`,
+        type: getRandomInt(0, APPOINTMENT_TYPES.length - 2), // Avoid 'Other' for past, completed appointments
         doctor: doctorsList.length > 0 ? getRandomElement(doctorsList) : "",
+        price: [1500, 500, 1200, 5000, 1500, 3000][getRandomInt(0, 5)],
         status: "completed",
+        paymentStatus: "paid",
+        balance: 0,
+        totalPaid: 1, // Will be set correctly by backend or placeholder
         notes: "Routine visit completed.",
       });
     }
   });
+
+  // Add specific appointments for test patient
+  const testPatient = patientsList.find(p => p.email === "test@patient.com");
+  const testDoctorName = "Dr. Test Doctor";
+  
+  if (testPatient) {
+    // 2 in Cart (pending, unpaid)
+    for (let i = 0; i < 2; i++) {
+        const date = new Date(now);
+        date.setDate(now.getDate() + getRandomInt(1, 14));
+        generatedAppointments.push({
+            patientId: testPatient.id || "",
+            patientName: testPatient.name,
+            date: date.toISOString().split("T")[0],
+            time: "09:00",
+            type: getRandomInt(0, 5),
+            doctor: testDoctorName, // Assign to test doctor
+            price: 1500,
+            status: "pending",
+            paymentStatus: "unpaid",
+            balance: 1500,
+            totalPaid: 0,
+            notes: "Pending in cart."
+        });
+    }
+    // 1 Tentative (half-paid)
+    generatedAppointments.push({
+        patientId: testPatient.id || "",
+        patientName: testPatient.name,
+        date: new Date(now.getTime() + 86400000 * 3).toISOString().split("T")[0],
+        time: "11:00",
+        type: 0,
+        doctor: testDoctorName, // Assign to test doctor
+        price: 1500,
+        status: "tentative",
+        paymentStatus: "half-paid",
+        balance: 1000,
+        totalPaid: 500,
+        notes: "Tentative booking with partial payment."
+    });
+    // 1 To Pay (Clinic payment, scheduled)
+    generatedAppointments.push({
+        patientId: testPatient.id || "",
+        patientName: testPatient.name,
+        date: new Date(now.getTime() + 86400000 * 4).toISOString().split("T")[0],
+        time: "13:30",
+        type: 3,
+        doctor: testDoctorName, // Assign to test doctor
+        price: 5000,
+        status: "To Pay",
+        paymentStatus: "unpaid",
+        balance: 5000,
+        totalPaid: 0,
+        notes: "Pay at clinic request."
+    });
+    // 2 in Bookings (confirmed/scheduled, paid)
+  generatedAppointments.push({
+        patientId: testPatient.id || "",
+        patientName: testPatient.name,
+        date: new Date(now.getTime() + 86400000 * 2).toISOString().split("T")[0],
+        time: "10:30",
+        type: 1,
+        doctor: testDoctorName, // Assign to test doctor
+        price: 500,
+    status: "scheduled",
+        paymentStatus: "paid",
+        balance: 0,
+        totalPaid: 500,
+        notes: "Confirmed and paid."
+    });
+    generatedAppointments.push({
+        patientId: testPatient.id || "",
+        patientName: testPatient.name,
+        date: new Date(now.getTime() + 86400000 * 5).toISOString().split("T")[0],
+        time: "14:00",
+        type: 2,
+        doctor: testDoctorName, // Assign to test doctor
+        price: 1200,
+        status: "scheduled",
+        paymentStatus: "paid",
+        balance: 0,
+        totalPaid: 1200,
+        notes: "Scheduled and fully paid."
+    });
+  }
 
   // Then generate some random future/mixed appointments
   const remainingCount = Math.max(0, count - generatedAppointments.length);
@@ -260,16 +524,53 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
     const isPast = Math.random() > 0.8;
     const appointmentDate = isPast ? getRandomDate(oneYearAgo, now) : getRandomDate(now, sixMonthsLater);
     const hour = getRandomInt(8, 17);
-    const minute = getRandomElement([0, 15, 30, 45]);
+    const minute = getRandomElement([0, 30]);
+    const appointmentTypeIndex = getRandomInt(0, APPOINTMENT_TYPES.length - 1);
+    const customType = appointmentTypeIndex === APPOINTMENT_TYPES.length - 1 ? "Custom user-defined procedure" : undefined;
+    
+    // Choose status, and then derive a consistent paymentStatus
+    let status = (isPast ? "completed" : getRandomElement(["pending", "tentative", "To Pay", "confirmed", "scheduled"])) as any;
+    let paymentStatus: "paid" | "unpaid" | "half-paid" = "unpaid";
+
+    if (status === "completed") {
+      paymentStatus = "paid";
+    } else if (status === "tentative") {
+      // tentative == reserved (partial payment)
+      paymentStatus = "half-paid";
+    } else if (status === "pending") {
+      paymentStatus = "unpaid";
+    } else if (status === "To Pay") {
+      // To Pay means pay at clinic — keep unpaid but status stays as To Pay
+      paymentStatus = "unpaid";
+    } else {
+      // scheduled/confirmed — randomly decide if paid or unpaid
+      paymentStatus = Math.random() > 0.5 ? "paid" : "unpaid";
+      // If unpaid for scheduled/confirmed, prefer marking as 'To Pay' occasionally
+      if (paymentStatus === "unpaid" && Math.random() > 0.8) {
+        status = "To Pay";
+      }
+    }
+
+    const price = [1500, 500, 1200, 5000, 1500, 3000][getRandomInt(0, 5)] || 1000;
+    let totalPaid = 0;
+    if (paymentStatus === "paid") totalPaid = price;
+    else if (paymentStatus === "half-paid") totalPaid = Math.floor(price / 2);
+    
+    const balance = price - totalPaid;
 
     const appointment: Omit<Appointment, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt"> = {
       patientId: patient.id || "",
       patientName: `${patient.firstName} ${patient.lastName}`,
-      date: appointmentDate.toISOString().split("T")[0],
+      date: `${appointmentDate.getFullYear()}-${(appointmentDate.getMonth() + 1).toString().padStart(2, '0')}-${appointmentDate.getDate().toString().padStart(2, '0')}`,
       time: `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`,
-      type: getRandomElement(appointmentTypes),
+      type: appointmentTypeIndex,
+      customType: customType,
       doctor: doctorsList.length > 0 ? getRandomElement(doctorsList) : "",
-      status: isPast ? "completed" : getRandomElement(["pending", "confirmed", "scheduled"]),
+      price: price,
+  status: status,
+  paymentStatus: paymentStatus,
+      totalPaid: totalPaid,
+      balance: balance,
       notes: getRandomElement([
         "Routine cleaning and checkup",
         "Follow-up from previous visit",
@@ -309,6 +610,156 @@ function generateFinanceRecords(patientsList: Patient[], count: number = 80): Om
   return records;
 }
 
+function generateNotifications(patients: Patient[], staff: Staff[], appointments: Appointment[]): any[] {
+  const notifications: any[] = [];
+  
+  // 1. Literal Admin and Management staff notifications
+  // Only the literal "admin" user should receive cross-doctor/admin notifications.
+  // Do NOT add staff IDs here; otherwise doctors with roles like "Lead Dentist"
+  // would receive admin/third-person notifications.
+  const adminUserIds = new Set<string>(["admin"]);
+
+  // Add some general system notifications for admins
+  adminUserIds.forEach(adminId => {
+    notifications.push({
+      userId: adminId,
+      title: "Low Stock Alert",
+      message: 'Item "Dental Anesthetic (Lidocaine)" is low on stock (45 vials remaining).',
+      type: "system",
+      isRead: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    notifications.push({
+      userId: adminId,
+      title: "Payment Reconciliation",
+      message: "Multiple payments are pending reconciliation for the current month.",
+      type: "payment",
+      isRead: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+  });
+
+  // 2. Map appointments to notifications for relevant parties
+  // We'll seed notifications for the last 15 appointments to simulate recent activity
+  // Skip "pending" status as requested by the user
+  const recentAppointments = appointments.filter(a => a.status !== "pending").slice(-15);
+  
+  recentAppointments.forEach(apt => {
+    const serviceName = getAppointmentTypeName(apt.type, apt.customType);
+    const aptStatus = (apt.status as string);
+
+    let statusText = aptStatus || "updated";
+    if (statusText === "scheduled" || statusText === "confirmed") statusText = "scheduled";
+
+    const isRequest = ["pending", "tentative", "To Pay"].includes(aptStatus || "");
+
+    const getIsoDate = (date: any) => {
+      if (!date) return new Date().toISOString();
+      try {
+        return new Date(date).toISOString();
+      } catch (e) {
+        return new Date().toISOString();
+      }
+    };
+
+    // All appointment notifications are type "appointment" (including "To Pay" which are requests)
+    const notificationType: NotificationType = "appointment";
+
+    // Notification for Patient
+    if (apt.patientId) {
+      notifications.push({
+        userId: apt.patientId,
+        title: "Appointment Update",
+        message: `Your appointment for ${serviceName} on ${apt.date} is now ${statusText}.`,
+        type: notificationType,
+        isRead: Math.random() > 0.3,
+        createdAt: getIsoDate(apt.createdAt),
+        updatedAt: getIsoDate(apt.updatedAt),
+        metadata: {
+          appointmentId: apt.id,
+          currentStatus: aptStatus,
+          patientName: apt.patientName,
+          isRequest: isRequest,
+          isPatientView: true
+        }
+      });
+    }
+
+    // Notification for Doctor
+    const assignedDoctor = staff.find(s => s.name === apt.doctor);
+    if (assignedDoctor && assignedDoctor.id) {
+      notifications.push({
+        userId: assignedDoctor.id,
+        title: "Appointment Update",
+        message: `Appointment with ${apt.patientName} for ${serviceName} on ${apt.date} is now ${statusText}.`,
+        type: notificationType,
+        isRead: Math.random() > 0.3,
+        createdAt: getIsoDate(apt.createdAt),
+        updatedAt: getIsoDate(apt.updatedAt),
+        metadata: {
+          appointmentId: apt.id,
+          currentStatus: aptStatus,
+          patientName: apt.patientName,
+          isRequest: isRequest,
+          isDoctorView: true
+        }
+      });
+    }
+
+    // Notification for Admins (Third person)
+    adminUserIds.forEach(adminId => {
+      // Don't duplicate if they are already the doctor
+      if (assignedDoctor && assignedDoctor.id === adminId) return;
+
+      const doctorName = apt.doctor || "The doctor";
+      let adminMessage = `${doctorName} has updated the appointment for ${apt.patientName} (${serviceName}) on ${apt.date}.`;
+
+      if (aptStatus === "scheduled" || aptStatus === "confirmed") {
+        adminMessage = `${doctorName} has accepted the appointment for ${apt.patientName} (${serviceName}) on ${apt.date}.`;
+      } else if (aptStatus === "cancelled") {
+        adminMessage = `${doctorName} has cancelled the appointment for ${apt.patientName} (${serviceName}) on ${apt.date}.`;
+      } else if (aptStatus === "tentative") {
+        adminMessage = `${apt.patientName} has made a partial payment for the ${serviceName} appointment on ${apt.date}.`;
+      }
+
+      notifications.push({
+        userId: adminId,
+        title: "Appointment Update",
+        message: adminMessage,
+        type: notificationType,
+        isRead: Math.random() > 0.3,
+        createdAt: getIsoDate(apt.createdAt),
+        updatedAt: getIsoDate(apt.updatedAt),
+        metadata: {
+          appointmentId: apt.id,
+          currentStatus: aptStatus,
+          patientName: apt.patientName,
+          isRequest: isRequest,
+          isAdminView: true
+        }
+      });
+    });
+  });
+  
+  // 3. Welcome notifications for patients
+  patients.slice(0, 10).forEach(p => {
+    notifications.push({
+      userId: p.id || "",
+      title: "Welcome to Villahermosa Dental Clinic",
+      message: "Thank you for joining our clinic. We look forward to serving you!",
+      type: "system",
+      isRead: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+  });
+  
+  return notifications;
+}
+
 async function seedDatabase() {
   try {
     console.log("\n🌱 Generating seeder data...\n");
@@ -344,13 +795,85 @@ async function seedDatabase() {
         console.error(`❌ Error adding patient: ${err}`);
       }
     }
-    console.log(`✅ All patients added. Total: ${createdPatients.length}\n`);
+    console.log(`✅ All primary patients added. Total: ${createdPatients.length}\n`);
+
+    // --- Seed Dependents ---
+    console.log("👪 Generating and seeding dependents...");
+    const dependentsToCreate: Omit<Patient, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] = [];
+    
+    // Pick 40% of patients to have dependents
+    const parents = createdPatients.filter(() => Math.random() > 0.6);
+    // Always give test patient some dependents
+    const testPatient = createdPatients.find(p => p.email === "test@patient.com");
+    if (testPatient && !parents.includes(testPatient)) {
+      parents.push(testPatient);
+    }
+
+    for (const parent of parents) {
+      const isTestPatient = parent.email === "test@patient.com";
+      const familyCount = isTestPatient ? 3 : getRandomInt(1, 3);
+      const parentDependents = generateDependents(parent, familyCount);
+      dependentsToCreate.push(...parentDependents);
+    }
+
+    console.log(`📤 Adding ${dependentsToCreate.length} dependents to database via API...`);
+    for (const dependentData of dependentsToCreate) {
+      try {
+        const response = await fetch("http://localhost:3001/api/patients", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(dependentData),
+        });
+
+        if (!response.ok) {
+          console.error(`❌ Failed to add dependent ${dependentData.firstName} ${dependentData.lastName}`);
+        } else {
+          const apiResponse = await response.json();
+          if (apiResponse.success && apiResponse.data) {
+            createdPatients.push(apiResponse.data);
+          }
+        }
+      } catch (err) {
+        console.error(`❌ Error adding dependent: ${err}`);
+      }
+    }
+    console.log(`✅ All dependents added. Total patients now: ${createdPatients.length}\n`);
+
+    // --- Seed Staff Members ---
+    const createdStaff: Staff[] = [];
+    console.log("📤 Adding staff members to database via API...");
+    for (const staffData of staffMembersData) {
+      try {
+        const response = await fetch("http://localhost:3001/api/staff", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(staffData),
+        });
+
+        if (!response.ok) {
+          console.error(`❌ Failed to add staff member: ${staffData.name}`);
+        } else {
+          const apiResponse = await response.json();
+          if (apiResponse.success && apiResponse.data) {
+            createdStaff.push(apiResponse.data);
+          }
+        }
+      } catch (err) {
+        console.error(`❌ Error adding staff member: ${err}`);
+      }
+    }
+    console.log(`✅ All staff members added. Total: ${createdStaff.length}\n`);
 
     // Generate appointments
     const generatedAppointmentsData = generateAppointments(createdPatients, doctorNames, 60);
     console.log(`✅ Generated ${generatedAppointmentsData.length} appointments data\n`);
 
     // --- Seed Appointments ---
+    const createdAppointments: Appointment[] = [];
     console.log("📤 Adding appointments to database via API...");
     for (const appointmentData of generatedAppointmentsData) {
       try {
@@ -364,12 +887,17 @@ async function seedDatabase() {
 
         if (!response.ok) {
           console.error(`❌ Failed to add appointment for patientId ${appointmentData.patientId}`);
+        } else {
+          const apiResponse = await response.json();
+          if (apiResponse.success && apiResponse.data) {
+            createdAppointments.push(apiResponse.data);
+          }
         }
       } catch (err) {
         console.error(`❌ Error adding appointment: ${err}`);
       }
     }
-    console.log(`✅ All appointments added. Total: ${generatedAppointmentsData.length}\n`);
+    console.log(`✅ All appointments added. Total: ${createdAppointments.length}\n`);
 
     // Generate finance records
     const generatedFinanceRecords = generateFinanceRecords(createdPatients, 80);
@@ -417,33 +945,59 @@ async function seedDatabase() {
     }
     console.log(`✅ All inventory items added. Total: ${inventoryItemsData.length}\n`);
 
-    // --- Seed Staff Members ---
-    console.log("📤 Adding staff members to database via API...");
-    for (const staffData of staffMembersData) {
+    // --- Seed Payment Methods ---
+    console.log("📤 Adding payment methods to database via API...");
+    for (const paymentMethodData of paymentMethodsData) {
       try {
-        const response = await fetch("http://localhost:3001/api/staff", {
+        const response = await fetch("http://localhost:3001/api/payment-methods", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify(staffData),
+          body: JSON.stringify(paymentMethodData),
         });
 
         if (!response.ok) {
-          console.error(`❌ Failed to add staff member: ${staffData.name}`);
+          console.error(`❌ Failed to add payment method: ${paymentMethodData.name}`);
         }
       } catch (err) {
-        console.error(`❌ Error adding staff member: ${err}`);
+        console.error(`❌ Error adding payment method: ${err}`);
       }
     }
-    console.log(`✅ All staff members added. Total: ${staffMembersData.length}\n`);
+    console.log(`✅ All payment methods added. Total: ${paymentMethodsData.length}\n`);
+
+    // --- Seed Notifications ---
+    console.log("🔔 Generating and seeding notifications...");
+    const notificationsToCreate = generateNotifications(createdPatients, createdStaff, createdAppointments);
+    console.log(`📤 Adding ${notificationsToCreate.length} notifications to database via API...`);
+    for (const notificationData of notificationsToCreate) {
+      try {
+        const response = await fetch("http://localhost:3001/api/notifications", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(notificationData),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error(`❌ Failed to add notification for userId ${notificationData.userId}. Status: ${response.status}. Error: ${errorText}`);
+        }
+      } catch (err) {
+        console.error(`❌ Error adding notification: ${err}`);
+      }
+    }
+    console.log(`✅ All notifications added. Total: ${notificationsToCreate.length}\n`);
 
     console.log("📊 Seeding Summary:");
     console.log(`   ✅ Total Patients Added: ${createdPatients.length}`);
-    console.log(`   ✅ Total Appointments Added: ${generatedAppointmentsData.length}`);
+    console.log(`   ✅ Total Appointments Added: ${createdAppointments.length}`);
     console.log(`   ✅ Total Finance Records Added: ${generatedFinanceRecords.length}`);
     console.log(`   ✅ Total Inventory Items Added: ${inventoryItemsData.length}`);
-    console.log(`   ✅ Total Staff Members Added: ${staffMembersData.length}`);
+    console.log(`   ✅ Total Payment Methods Added: ${paymentMethodsData.length}`);
+    console.log(`   ✅ Total Staff Members Added: ${createdStaff.length}`);
+    console.log(`   ✅ Total Notifications Added: ${notificationsToCreate.length}`);
     console.log("\n✨ Database seeding completed successfully!");
     console.log("🎉 You can now refresh your application to see the new data.\n");
 

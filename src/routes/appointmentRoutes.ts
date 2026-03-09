@@ -5,9 +5,13 @@ import {
   getAppointmentById,
   updateAppointment,
   deleteAppointment,
+  bookPublicAppointment,
 } from "../controllers/appointmentController";
 
 const router = Router();
+
+// POST - Public booking (no auth required)
+router.post("/public-book", bookPublicAppointment);
 
 // POST - Add new appointment
 router.post("/", addAppointment);

@@ -1,9 +1,10 @@
 import { Request, Response } from "express";
 import { InventoryItem, ApiResponse } from "../types/inventory";
+import { readData, writeData } from "../utils/storage";
+import { notifyAdmin } from "../utils/notifications";
 
-// Temporary in-memory storage (replace with database later)
-const inventoryItems: InventoryItem[] = [];
-let inventoryIdCounter = 0;
+const COLLECTION = "inventory";
+const LOW_STOCK_THRESHOLD = 5;
 
 // --- CRUD Operations ---
 
@@ -12,6 +13,7 @@ export const createInventoryItem = (
   res: Response<ApiResponse<InventoryItem>>
 ) => {
   try {
+    const inventoryItems = readData<InventoryItem>(COLLECTION);
     console.log("[INVENTORY CREATE] Received request body:", req.body);
     const itemData: InventoryItem = req.body;
 
@@ -27,7 +29,7 @@ export const createInventoryItem = (
     console.log("[INVENTORY CREATE] Creating inventory item:", itemData.item);
 
     const newItem: InventoryItem = {
-      id: `inv_${Date.now()}_${inventoryIdCounter++}`,
+      id: `inv_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
       ...itemData,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -35,7 +37,16 @@ export const createInventoryItem = (
     };
 
     inventoryItems.push(newItem);
+    writeData(COLLECTION, inventoryItems);
     console.log("[INVENTORY CREATE] Inventory item saved. Total items:", inventoryItems.length);
+
+    if (newItem.quantity <= LOW_STOCK_THRESHOLD) {
+      notifyAdmin(
+        "Low Stock Alert",
+        `Item "${newItem.item}" is low on stock (${newItem.quantity} ${newItem.unit} remaining).`,
+        "system"
+      );
+    }
 
     res.status(201).json({
       success: true,
@@ -57,6 +68,7 @@ export const getAllInventoryItems = (
   res: Response<ApiResponse<InventoryItem[]>>
 ) => {
   try {
+    const inventoryItems = readData<InventoryItem>(COLLECTION);
     const { page = "1", limit = "20" } = req.query as Record<string, string>;
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.max(1, parseInt(limit, 10) || 20);
@@ -89,6 +101,7 @@ export const getInventoryItemById = (
   res: Response<ApiResponse<InventoryItem | null>>
 ) => {
   try {
+    const inventoryItems = readData<InventoryItem>(COLLECTION);
     const { id } = req.params;
     const item = inventoryItems.find((rec) => rec.id === id);
 
@@ -119,6 +132,7 @@ export const updateInventoryItem = (
   res: Response<ApiResponse<InventoryItem | null>>
 ) => {
   try {
+    const inventoryItems = readData<InventoryItem>(COLLECTION);
     const { id } = req.params;
     const updates: Partial<InventoryItem> = req.body;
 
@@ -138,6 +152,15 @@ export const updateInventoryItem = (
     };
 
     inventoryItems[itemIndex] = updatedItem;
+    writeData(COLLECTION, inventoryItems);
+
+    if (updatedItem.quantity <= LOW_STOCK_THRESHOLD) {
+      notifyAdmin(
+        "Low Stock Alert",
+        `Item "${updatedItem.item}" is low on stock (${updatedItem.quantity} ${updatedItem.unit} remaining).`,
+        "system"
+      );
+    }
 
     res.json({
       success: true,
@@ -159,6 +182,7 @@ export const deleteInventoryItem = (
   res: Response<ApiResponse<null>>
 ) => {
   try {
+    const inventoryItems = readData<InventoryItem>(COLLECTION);
     const { id } = req.params;
     const itemIndex = inventoryItems.findIndex((rec) => rec.id === id);
 
@@ -176,6 +200,7 @@ export const deleteInventoryItem = (
       deletedAt: new Date(),
       updatedAt: new Date(),
     };
+    writeData(COLLECTION, inventoryItems);
 
     console.log("[INVENTORY DELETE] Soft-deleted inventory item:", inventoryItems[itemIndex]);
 
