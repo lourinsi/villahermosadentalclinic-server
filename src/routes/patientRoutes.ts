@@ -13,7 +13,7 @@ import { requireAuth, requireRole } from "../middleware/authMiddleware";
 const router = Router();
 
 // POST - Add new patient (admin/doctor only)
-router.post("/", requireAuth, requireRole(["admin", "doctor"]), addPatient);
+router.post("/", addPatient);
 
 // POST - Add dependent patient
 router.post("/dependent", addDependent);

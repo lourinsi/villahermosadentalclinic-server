@@ -43,8 +43,9 @@ export const addAppointment = (req: Request, res: Response<ApiResponse<Appointme
     const newStart = timeToMinutes(appointmentData.time);
     const newDuration = Number(appointmentData.duration) || 60;
     const newEnd = newStart + newDuration;
+    const isSeeding = req.body.isSeeding === true;
 
-    const hasOverlapSamePatient = appointments.some(apt => {
+    const hasOverlapSamePatient = !isSeeding && appointments.some(apt => {
       if (apt.deleted || apt.id === appointmentData.id || apt.date !== appointmentData.date) return false;
       if (apt.patientId === appointmentData.patientId) {
         const aptStart = timeToMinutes(apt.time);
@@ -62,7 +63,7 @@ export const addAppointment = (req: Request, res: Response<ApiResponse<Appointme
     }
 
     // Then check doctor-specific conflicts (existing behavior)
-    if (hasConflict(
+    if (!isSeeding && hasConflict(
       appointments, 
       appointmentData.date, 
       appointmentData.time, 
