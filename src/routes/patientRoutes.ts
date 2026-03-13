@@ -18,8 +18,8 @@ router.post("/", addPatient);
 // POST - Add dependent patient
 router.post("/dependent", addDependent);
 
-// GET - Get all patients
-router.get("/", getPatients);
+// GET - Get all patients (require auth so we can filter for patient role)
+router.get("/", requireAuth, getPatients);
 
 // GET - Get patient by ID
 router.get("/:id", getPatientById);

@@ -350,9 +350,12 @@ export const login = async (
       }
 
       // Generate JWT token for patient
+      // Use email as the primary identifier for matching patient records in server-side filtering
       const token = jwt.sign(
         {
-          username: patient.name,
+          id: patient.id,
+          username: patient.email, // Use email as username for server-side patient filtering
+          email: patient.email,
           role: "patient",
           patientId: patient.id,
           iat: Math.floor(Date.now() / 1000),

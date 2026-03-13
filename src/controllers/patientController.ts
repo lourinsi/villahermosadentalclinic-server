@@ -185,6 +185,12 @@ export const getPatients = (
   res: Response<ApiResponse<Patient[]>>
 ) => {
   try {
+    console.log('[PATIENT CONTROLLER] getPatients called', { 
+      reqUser: (req as any).user, 
+      reqAuthUser: (req as any).authUser, 
+      cookies: (req as any).cookies,
+      headers_auth: (req as any).headers?.authorization ? 'present' : 'missing'
+    });
     const patients = readData<Patient>(COLLECTION);
     // server-side filtering + pagination
     const { page = "1", limit = "10", search = "", status = "all", parentId = "", doctor = "" } = req.query as Record<string, string>;
@@ -228,6 +234,87 @@ export const getPatients = (
     if (status && status !== "all") {
       active = active.filter(p => p.status === status);
     }
+
+    // --- START: Server-side restriction for patient role ---
+    try {
+      const requester = (req as any).user || (req as any).authUser;
+      console.log('[PATIENT CONTROLLER] getPatients check: requester=', { requester: requester ? { username: requester.username, role: requester.role, id: requester.id, email: (requester as any).email } : null });
+      
+      if (requester && requester.role === 'patient') {
+        const uEmail = String((requester as any).email || '').toLowerCase();
+        const uName = String(requester.username || '').toLowerCase();
+        const uId = (requester as any).id || (requester as any).patientId ? String((requester as any).id || (requester as any).patientId) : undefined;
+
+        console.log('[PATIENT CONTROLLER] filtering for patient role:', { uEmail, uName, uId, activeCount: active.length });
+
+        const filteredActive = active.filter((p: any) => {
+          try {
+            const pEmail = String(p.email || '').toLowerCase();
+            const pUsername = String(p.username || p.email || '').toLowerCase();
+            const pName = String(p.name || '').toLowerCase();
+
+            if (uEmail && pEmail === uEmail) {
+              console.log('[PATIENT CONTROLLER] matched by email:', { patientId: p.id, patientName: p.name });
+              return true;
+            }
+            if (uName && (pUsername === uName || pName === uName)) {
+              console.log('[PATIENT CONTROLLER] matched by username or name:', { patientId: p.id, patientName: p.name });
+              return true;
+            }
+            if (uId && (String(p.parentId || p.ownerId || p.familyId || p.id) === uId)) {
+              console.log('[PATIENT CONTROLLER] matched by id/familyId/parentId/ownerId:', { patientId: p.id, patientName: p.name });
+              return true;
+            }
+
+            if (p.parentId && uId && String(p.parentId) === uId) {
+              console.log('[PATIENT CONTROLLER] matched as family via parentId:', { patientId: p.id, patientName: p.name });
+              return true;
+            }
+            if (p.ownerId && uId && String(p.ownerId) === uId) {
+              console.log('[PATIENT CONTROLLER] matched as family via ownerId:', { patientId: p.id, patientName: p.name });
+              return true;
+            }
+            if (p.familyId && uId && String(p.familyId) === uId) {
+              console.log('[PATIENT CONTROLLER] matched as family via familyId:', { patientId: p.id, patientName: p.name });
+              return true;
+            }
+
+            if (Array.isArray(p.familyMembers)) {
+              if (p.familyMembers.some((m: any) => {
+                const mid = String((m && (m.id || m)) || '');
+                const memEmail = String(m && (m.email || m.username) || '').toLowerCase();
+                if (uId && mid && mid === uId) {
+                  console.log('[PATIENT CONTROLLER] matched as family via familyMembers id:', { patientId: p.id, patientName: p.name });
+                  return true;
+                }
+                if (uEmail && memEmail === uEmail) {
+                  console.log('[PATIENT CONTROLLER] matched as family via familyMembers email:', { patientId: p.id, patientName: p.name });
+                  return true;
+                }
+                return false;
+              })) return true;
+            }
+          } catch (err) {
+            console.error('[PATIENT CONTROLLER] error filtering patient:', { patientId: p.id, error: err });
+            return false;
+          }
+          return false;
+        });
+
+        console.log('[PATIENT CONTROLLER] filtered patients for patient requester', {
+          requester: { username: requester.username, role: requester.role },
+          originalCount: active.length,
+          filteredCount: filteredActive.length,
+        });
+
+        active = filteredActive;
+      } else {
+        console.log('[PATIENT CONTROLLER] no requester or not patient role - returning all active patients:', { activeCount: active.length });
+      }
+    } catch (err) {
+      console.error('[PATIENT CONTROLLER] patient filtering error', err);
+    }
+    // --- END: Server-side restriction for patient role ---
 
     const total = active.length;
     const totalPages = Math.max(1, Math.ceil(total / limitNum));

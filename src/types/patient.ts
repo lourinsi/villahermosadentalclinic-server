@@ -22,6 +22,7 @@ export interface Patient {
   parentId?: string;
   isPrimary?: boolean;
   relationship?: string;
+  username?: string; // Optional: for linking to auth user accounts
   dentalCharts?: { date: string; data: string; isEmpty: boolean }[];
   status?: "active" | "overdue" | "inactive" | string;
   lastVisit?: string;

@@ -294,6 +294,7 @@ function generatePatients(count: number = 25): Omit<Patient, "id" | "createdAt" 
   const oneYearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
 
   // Add a specific patient for testing
+  // IMPORTANT: username must match the auth user record for server-side filtering to work
   const testPatient: Omit<Patient, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt"> = {
     name: "Test Patient",
     firstName: "Test",
@@ -315,6 +316,7 @@ function generatePatients(count: number = 25): Omit<Patient, "id" | "createdAt" 
     isPrimary: true,
     dentalCharts: [],
     lastVisit: undefined,
+    username: "Test Patient", // Add username for auth matching
   };
   generatedPatients.push(testPatient);
 
