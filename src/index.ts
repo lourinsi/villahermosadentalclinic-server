@@ -52,10 +52,13 @@ import authRoutes from "./routes/authRoutes";
 import messageRoutes from "./routes/messageRoutes";
 import notificationRoutes from "./routes/notificationRoutes";
 import { initializeAuth } from "./controllers/authController";
+import questionnaireRoutes from './routes/questionnaires';
 
 // Routes
+console.log('[ROUTES] Registering API routes...');
 app.use("/api/auth", authRoutes);
 app.use("/api/patients", patientRoutes);
+app.use("/api/questionnaires", questionnaireRoutes);
 app.use("/api/appointments", appointmentRoutes);
 app.use("/api/finance", financeRoutes);
 app.use("/api/staff", staffRoutes);
@@ -64,6 +67,7 @@ app.use("/api/payments", paymentRoutes);
 app.use("/api/payment-methods", paymentMethodRoutes);
 app.use("/api/messages", messageRoutes);
 app.use("/api/notifications", notificationRoutes);
+console.log('[ROUTES] All routes registered successfully');
 
 // app.get("/users", (req,res)=>{
 //   res.send("Hello World")

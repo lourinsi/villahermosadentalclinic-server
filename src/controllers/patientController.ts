@@ -430,6 +430,181 @@ export const updatePatient = (
   }
 };
 
+// Get questionnaire data (alias for getting full patient with questionnaire fields)
+export const getQuestionnaire = (
+  req: Request,
+  res: Response<ApiResponse<any>>
+) => {
+  try {
+    const patients = readData<Patient>(COLLECTION);
+    const { patientId } = req.params;
+    
+    const patient = patients.find((p) => p.id === patientId);
+
+    if (!patient) {
+      return res.status(200).json({
+        success: true,
+        data: null,
+        message: "No questionnaire found",
+      });
+    }
+
+    // Extract questionnaire fields from patient
+    const questionnaireData = {
+      patientId: patient.id,
+      // General Information
+      gender: (patient as any).gender,
+      civilStatus: (patient as any).civilStatus,
+      age: (patient as any).age,
+      ethnicity: (patient as any).ethnicity,
+      religion: (patient as any).religion,
+      nationality: (patient as any).nationality,
+      
+      // Current Address
+      currentStreet: (patient as any).currentStreet,
+      currentBarangay: (patient as any).currentBarangay,
+      currentCity: patient.city,
+      currentProvince: (patient as any).currentProvince,
+      currentZipCode: patient.zipCode,
+      
+      // Permanent Address
+      permanentStreet: (patient as any).permanentStreet,
+      permanentBarangay: (patient as any).permanentBarangay,
+      permanentCity: (patient as any).permanentCity,
+      permanentProvince: (patient as any).permanentProvince,
+      permanentZipCode: (patient as any).permanentZipCode,
+      
+      // Contact Information
+      landline: (patient as any).landline,
+      mobileContact: patient.phone,
+      emailAddress: patient.email,
+      
+      // Emergency Contact
+      emergencyFirstName: (patient as any).emergencyFirstName,
+      emergencyLastName: (patient as any).emergencyLastName,
+      emergencyRelationship: (patient as any).emergencyRelationship,
+      emergencyContact: patient.emergencyContact,
+      emergencyPhone: patient.emergencyPhone,
+      
+      // Other Information
+      education: (patient as any).education,
+      occupation: (patient as any).occupation,
+      company: (patient as any).company,
+      companyAddress: (patient as any).companyAddress,
+      height: (patient as any).height,
+      weight: (patient as any).weight,
+    };
+
+    res.status(200).json({
+      success: true,
+      data: questionnaireData,
+      message: "Questionnaire retrieved successfully",
+    });
+  } catch (error) {
+    console.error("[GET QUESTIONNAIRE] Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch questionnaire",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
+
+// Update questionnaire (same as updatePatient)
+export const upsertQuestionnaire = (
+  req: Request,
+  res: Response<ApiResponse<Patient | null>>
+) => {
+  try {
+    const patients = readData<Patient>(COLLECTION);
+    const { patientId } = req.params;
+    console.log("[QUESTIONNAIRE UPDATE] Received update request for patient ID:", patientId);
+    console.log("[QUESTIONNAIRE UPDATE] Update data:", req.body);
+
+    const patientIndex = patients.findIndex((p) => p.id === patientId);
+
+    if (patientIndex === -1) {
+      console.error("[QUESTIONNAIRE UPDATE] Patient not found:", patientId);
+      return res.status(404).json({
+        success: false,
+        message: "Patient not found",
+      });
+    }
+
+    const questionnaireData = req.body;
+    
+    // Map questionnaire fields to patient fields
+    const updateData: any = {
+      // General Information
+      gender: questionnaireData.gender,
+      civilStatus: questionnaireData.civilStatus,
+      age: questionnaireData.age,
+      ethnicity: questionnaireData.ethnicity,
+      religion: questionnaireData.religion,
+      nationality: questionnaireData.nationality,
+      
+      // Current Address
+      currentStreet: questionnaireData.currentStreet,
+      currentBarangay: questionnaireData.currentBarangay,
+      city: questionnaireData.currentCity,
+      currentProvince: questionnaireData.currentProvince,
+      zipCode: questionnaireData.currentZipCode,
+      
+      // Permanent Address
+      permanentStreet: questionnaireData.permanentStreet,
+      permanentBarangay: questionnaireData.permanentBarangay,
+      permanentCity: questionnaireData.permanentCity,
+      permanentProvince: questionnaireData.permanentProvince,
+      permanentZipCode: questionnaireData.permanentZipCode,
+      
+      // Contact Information
+      landline: questionnaireData.landline,
+      phone: questionnaireData.mobileContact,
+      email: questionnaireData.emailAddress,
+      
+      // Emergency Contact
+      emergencyFirstName: questionnaireData.emergencyFirstName,
+      emergencyLastName: questionnaireData.emergencyLastName,
+      emergencyRelationship: questionnaireData.emergencyRelationship,
+      emergencyContact: questionnaireData.emergencyContact,
+      emergencyPhone: questionnaireData.emergencyPhone,
+      
+      // Other Information
+      education: questionnaireData.education,
+      occupation: questionnaireData.occupation,
+      company: questionnaireData.company,
+      companyAddress: questionnaireData.companyAddress,
+      height: questionnaireData.height,
+      weight: questionnaireData.weight,
+    };
+
+    const updatedPatient: Patient = {
+      ...patients[patientIndex],
+      ...updateData,
+      updatedAt: new Date(),
+    };
+
+    console.log("[QUESTIONNAIRE UPDATE] Updated patient data:", updatedPatient);
+    patients[patientIndex] = updatedPatient;
+    writeData(COLLECTION, patients);
+
+    const { password, ...patientForResponse } = updatedPatient;
+
+    res.json({
+      success: true,
+      data: patientForResponse,
+      message: "Questionnaire saved successfully",
+    });
+  } catch (error) {
+    console.error("[QUESTIONNAIRE UPDATE] ERROR:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to save questionnaire",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
+
 export const deletePatient = (
   req: Request,
   res: Response<ApiResponse<null>>
