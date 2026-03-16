@@ -6,6 +6,7 @@ import { readData, writeData } from "../utils/storage";
 import { hasConflict } from "../utils/appointment-helpers";
 import { FinanceRecord } from "../types/finance";
 import { Patient } from "../types/patient";
+import { normalizeStatus } from "../constants/appointmentStatuses";
 import { notifyAppointmentChange } from "../utils/notifications";
 
 const COLLECTION = "appointments";
@@ -214,7 +215,10 @@ export const getAppointments = (
     res.json({
       success: true,
       message: "Appointments retrieved successfully",
-      data: filtered,
+      data: filtered.map(a => ({
+        ...a,
+        status: normalizeStatus(a.status || "pending")
+      })),
     });
   } catch (error) {
     console.error("[APPOINTMENT GET] Error fetching appointments:", error);
@@ -245,7 +249,10 @@ export const getAppointmentById = (
     res.json({
       success: true,
       message: "Appointment retrieved successfully",
-      data: appointment,
+      data: {
+        ...appointment,
+        status: normalizeStatus(appointment.status || "pending")
+      },
     });
   } catch (error) {
     console.error("[APPOINTMENT GET_BY_ID] Error fetching appointment:", error);

@@ -43,6 +43,7 @@ app.use((req: express.Request, res: express.Response, next: express.NextFunction
 
 import patientRoutes from "./routes/patientRoutes";
 import appointmentRoutes from "./routes/appointmentRoutes";
+import appointmentStatusRoutes from "./routes/appointmentStatusRoutes";
 import financeRoutes from "./routes/financeRoutes";
 import paymentRoutes from "./routes/paymentRoutes";
 import paymentMethodRoutes from "./routes/paymentMethodRoutes";
@@ -60,6 +61,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/patients", patientRoutes);
 app.use("/api/questionnaires", questionnaireRoutes);
 app.use("/api/appointments", appointmentRoutes);
+app.use("/api/appointment-statuses", appointmentStatusRoutes);
 app.use("/api/finance", financeRoutes);
 app.use("/api/staff", staffRoutes);
 app.use("/api/inventory", inventoryRoutes);

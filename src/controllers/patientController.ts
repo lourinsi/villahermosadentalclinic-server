@@ -230,7 +230,7 @@ export const getPatients = (
       });
     }
 
-    // filter by status (active, overdue, inactive, all)
+    // filter by status (active, inactive, all)
     if (status && status !== "all") {
       active = active.filter(p => p.status === status);
     }

@@ -13,7 +13,7 @@ export interface Appointment {
   notes?: string;
   serviceType?: string;
   // 'confirmed' may be returned by frontend; treated same as scheduled internally
-  status?: "scheduled" | "confirmed" | "pending" | "tentative" | "completed" | "cancelled" | "To Pay";
+  status?: "scheduled" | "pending" | "reserved" | "cancelled";
   paymentStatus?: "paid" | "unpaid" | "overdue" | "half-paid" | "over-paid";
   balance?: number;
   totalPaid?: number;

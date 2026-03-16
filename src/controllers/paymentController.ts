@@ -92,7 +92,7 @@ export const createPayment = (req: Request, res: Response<ApiResponse<any>>) => 
           );
         } else {
           if (isPayAtClinic) {
-            apt.status = 'To Pay';
+            apt.status = 'pending';
             // User said: "When this is used change the status to 'To Pay' ... and it should be scheduled too as well"
             // This is slightly contradictory in status terms, but I'll set it to 'To Pay'
             // and maybe 'To Pay' is treated as scheduled in the calendar.
@@ -102,7 +102,7 @@ export const createPayment = (req: Request, res: Response<ApiResponse<any>>) => 
           } else if (apt.paymentStatus === 'paid') {
             apt.status = 'scheduled';
           } else if (apt.paymentStatus === 'half-paid') {
-            apt.status = 'tentative';
+            apt.status = 'reserved';
           }
           
           notifyAdmin(
@@ -113,11 +113,11 @@ export const createPayment = (req: Request, res: Response<ApiResponse<any>>) => 
               appointmentId: apt.id, 
               currentStatus: apt.status, 
               patientName: apt.patientName,
-              isRequest: ['To Pay', 'tentative'].includes(apt.status)
+              isRequest: ['pending', 'reserved'].includes(apt.status || '')
             }
           );
         }
-      } else if (apt.status === 'tentative' && apt.paymentStatus === 'paid') {
+      } else if (apt.status === 'reserved' && apt.paymentStatus === 'paid') {
         // If it was tentative and now fully paid, it might become scheduled? 
         // But user said: "When accepted by the doctor/admin, the appointment status will then be updated to scheduled."
         // So we leave it as tentative or confirmed? I'll leave it as is for now.
@@ -129,7 +129,7 @@ export const createPayment = (req: Request, res: Response<ApiResponse<any>>) => 
         message = `Your request to pay at the clinic for your appointment on ${apt.date} has been received. Status: ${apt.status}.`;
       } else if (conflictFound) {
         message = `We have received your payment of ₱${payAmount}. However, there is a scheduling conflict. Our staff will contact you.`;
-      } else if (apt.status === 'tentative') {
+      } else if (apt.status === 'reserved') {
         message = `We have received your partial payment of ₱${payAmount}. Your slot is reserved but not yet fully scheduled. It will be updated once accepted by our staff.`;
       } else if (apt.status === 'scheduled') {
         message = `Your payment of ₱${payAmount} was successful. Your appointment on ${apt.date} is now scheduled.`;

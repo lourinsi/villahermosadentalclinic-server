@@ -71,9 +71,14 @@ const APPOINTMENT_TYPES = [
   "Other",
 ];
 
-const statuses = ["active", "inactive", "overdue"];
+const statuses = ["active", "inactive"];
 
 const insurances = ["Blue Cross", "Aetna", "Delta Dental", "Cigna", "United Healthcare", "None"];
+
+// Appointment statuses - using new standardized statuses only
+// Status options: scheduled, pending, reserved, cancelled
+const APPOINTMENT_STATUSES = ["scheduled", "pending", "reserved", "cancelled"];
+const PAYMENT_STATUSES = ["paid", "unpaid", "half-paid"];
 
 const inventoryItemsData: Omit<InventoryItem, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] = [
   { item: "Dental Anesthetic (Lidocaine)", quantity: 45, unit: "vials", costPerUnit: 12.50, totalValue: 562.50, supplier: "DentMed Supply", lastOrdered: "2024-01-15" },
@@ -413,7 +418,7 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
   const sixMonthsLater = new Date(now.getFullYear(), now.getMonth() + 6, now.getDate());
   const oneYearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
 
-  // First, create a completed appointment for each patient's lastVisit if they have one
+  // First, create a scheduled appointment for each patient's lastVisit if they have one
   patientsList.forEach(patient => {
     if (patient.lastVisit) {
       generatedAppointments.push({
@@ -424,7 +429,7 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
         type: getRandomInt(0, APPOINTMENT_TYPES.length - 2), // Avoid 'Other' for past, completed appointments
         doctor: doctorsList.length > 0 ? getRandomElement(doctorsList) : "",
         price: [1500, 500, 1200, 5000, 1500, 3000][getRandomInt(0, 5)],
-        status: "completed",
+        status: "scheduled",
         paymentStatus: "paid",
         balance: 0,
         totalPaid: 1, // Will be set correctly by backend or placeholder
@@ -457,7 +462,7 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
             notes: "Pending in cart."
         });
     }
-    // 1 Tentative (half-paid)
+    // 1 Reserved (half-paid)
     generatedAppointments.push({
         patientId: testPatient.id || "",
         patientName: testPatient.name,
@@ -466,13 +471,13 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
         type: 0,
         doctor: testDoctorName, // Assign to test doctor
         price: 1500,
-        status: "tentative",
+        status: "reserved",
         paymentStatus: "half-paid",
         balance: 1000,
         totalPaid: 500,
-        notes: "Tentative booking with partial payment."
+        notes: "Reserved slot with partial payment."
     });
-    // 1 To Pay (Clinic payment, scheduled)
+    // 1 Pending (Clinic payment, scheduled)
     generatedAppointments.push({
         patientId: testPatient.id || "",
         patientName: testPatient.name,
@@ -481,13 +486,13 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
         type: 3,
         doctor: testDoctorName, // Assign to test doctor
         price: 5000,
-        status: "To Pay",
+        status: "pending",
         paymentStatus: "unpaid",
         balance: 5000,
         totalPaid: 0,
         notes: "Pay at clinic request."
     });
-    // 2 in Bookings (confirmed/scheduled, paid)
+    // 2 in Bookings (scheduled/booked, paid)
   generatedAppointments.push({
         patientId: testPatient.id || "",
         patientName: testPatient.name,
@@ -500,7 +505,7 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
         paymentStatus: "paid",
         balance: 0,
         totalPaid: 500,
-        notes: "Confirmed and paid."
+        notes: "Scheduled and paid."
     });
     generatedAppointments.push({
         patientId: testPatient.id || "",
@@ -530,27 +535,22 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
     const appointmentTypeIndex = getRandomInt(0, APPOINTMENT_TYPES.length - 1);
     const customType = appointmentTypeIndex === APPOINTMENT_TYPES.length - 1 ? "Custom user-defined procedure" : undefined;
     
-    // Choose status, and then derive a consistent paymentStatus
-    let status = (isPast ? "completed" : getRandomElement(["pending", "tentative", "To Pay", "confirmed", "scheduled"])) as any;
+    // Choose status from new standardized options
+    let status = (isPast ? "scheduled" : getRandomElement(["scheduled", "pending", "reserved", "cancelled"])) as any;
     let paymentStatus: "paid" | "unpaid" | "half-paid" = "unpaid";
 
-    if (status === "completed") {
+    if (isPast && status === "scheduled") {
       paymentStatus = "paid";
-    } else if (status === "tentative") {
-      // tentative == reserved (partial payment)
+    } else if (status === "reserved") {
+      // reserved == partial payment
       paymentStatus = "half-paid";
     } else if (status === "pending") {
       paymentStatus = "unpaid";
-    } else if (status === "To Pay") {
-      // To Pay means pay at clinic — keep unpaid but status stays as To Pay
+    } else if (status === "cancelled") {
       paymentStatus = "unpaid";
-    } else {
-      // scheduled/confirmed — randomly decide if paid or unpaid
+    } else if (status === "scheduled" && !isPast) {
+      // future scheduled appointments randomly paid or unpaid
       paymentStatus = Math.random() > 0.5 ? "paid" : "unpaid";
-      // If unpaid for scheduled/confirmed, prefer marking as 'To Pay' occasionally
-      if (paymentStatus === "unpaid" && Math.random() > 0.8) {
-        status = "To Pay";
-      }
     }
 
     const price = [1500, 500, 1200, 5000, 1500, 3000][getRandomInt(0, 5)] || 1000;
@@ -654,9 +654,11 @@ function generateNotifications(patients: Patient[], staff: Staff[], appointments
     const aptStatus = (apt.status as string);
 
     let statusText = aptStatus || "updated";
-    if (statusText === "scheduled" || statusText === "confirmed") statusText = "scheduled";
+    if (statusText === "scheduled") statusText = "scheduled";
+    if (statusText === "reserved") statusText = "reserved";
+    if (statusText === "pending") statusText = "pending";
 
-    const isRequest = ["pending", "tentative", "To Pay"].includes(aptStatus || "");
+    const isRequest = ["pending", "reserved"].includes(aptStatus || "");
 
     const getIsoDate = (date: any) => {
       if (!date) return new Date().toISOString();
@@ -667,7 +669,7 @@ function generateNotifications(patients: Patient[], staff: Staff[], appointments
       }
     };
 
-    // All appointment notifications are type "appointment" (including "To Pay" which are requests)
+    // All appointment notifications are type "appointment" (including requests)
     const notificationType: NotificationType = "appointment";
 
     // Notification for Patient
@@ -719,11 +721,11 @@ function generateNotifications(patients: Patient[], staff: Staff[], appointments
       const doctorName = apt.doctor || "The doctor";
       let adminMessage = `${doctorName} has updated the appointment for ${apt.patientName} (${serviceName}) on ${apt.date}.`;
 
-      if (aptStatus === "scheduled" || aptStatus === "confirmed") {
+      if (aptStatus === "scheduled") {
         adminMessage = `${doctorName} has accepted the appointment for ${apt.patientName} (${serviceName}) on ${apt.date}.`;
       } else if (aptStatus === "cancelled") {
         adminMessage = `${doctorName} has cancelled the appointment for ${apt.patientName} (${serviceName}) on ${apt.date}.`;
-      } else if (aptStatus === "tentative") {
+      } else if (aptStatus === "reserved") {
         adminMessage = `${apt.patientName} has made a partial payment for the ${serviceName} appointment on ${apt.date}.`;
       }
 
