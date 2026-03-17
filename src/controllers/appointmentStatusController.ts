@@ -1,15 +1,14 @@
 import { Request, Response } from "express";
 import { ApiResponse } from "../types/patient";
-import { APPOINTMENT_STATUSES, STATUS_DESCRIPTIONS, getStatusOptions } from "../constants/appointmentStatuses";
-
-export type AppointmentStatus = typeof APPOINTMENT_STATUSES[keyof typeof APPOINTMENT_STATUSES];
+import { STATUS_DESCRIPTIONS, getStatusOptions, getAppointmentStatusesFromJSON } from "../constants/appointmentStatuses";
 
 export const getAppointmentStatuses = (
   req: Request,
   res: Response<ApiResponse<any>>
 ) => {
   try {
-    const statuses = getStatusOptions();
+    // Return the full status list from JSON with all details (key, label, description)
+    const statuses = getAppointmentStatusesFromJSON();
     
     res.status(200).json({
       success: true,
@@ -32,7 +31,7 @@ export const getStatusDescription = (
 ) => {
   try {
     const { status } = req.params;
-    const description = STATUS_DESCRIPTIONS[status as AppointmentStatus];
+    const description = STATUS_DESCRIPTIONS[status as string];
     
     if (!description) {
       return res.status(404).json({

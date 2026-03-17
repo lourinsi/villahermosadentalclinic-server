@@ -12,8 +12,8 @@ export interface Appointment {
   duration?: number; // in minutes
   notes?: string;
   serviceType?: string;
-  // 'confirmed' may be returned by frontend; treated same as scheduled internally
-  status?: "scheduled" | "pending" | "reserved" | "cancelled";
+  // Status is flexible to accept any value from the JSON configuration
+  status?: string;
   paymentStatus?: "paid" | "unpaid" | "overdue" | "half-paid" | "over-paid";
   balance?: number;
   totalPaid?: number;

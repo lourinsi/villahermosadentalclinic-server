@@ -77,8 +77,11 @@ const insurances = ["Blue Cross", "Aetna", "Delta Dental", "Cigna", "United Heal
 
 // Appointment statuses - using new standardized statuses only
 // Status options: scheduled, pending, reserved, cancelled
-const APPOINTMENT_STATUSES = ["scheduled", "pending", "reserved", "cancelled"];
-const PAYMENT_STATUSES = ["paid", "unpaid", "half-paid"];
+const APPOINTMENT_STATUSES = ["scheduled", "pending", "reserved", "cancelled"] as const;
+type AppointmentStatus = typeof APPOINTMENT_STATUSES[number];
+
+const PAYMENT_STATUSES = ["paid", "unpaid", "half-paid"] as const;
+type PaymentStatus = typeof PAYMENT_STATUSES[number];
 
 const inventoryItemsData: Omit<InventoryItem, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] = [
   { item: "Dental Anesthetic (Lidocaine)", quantity: 45, unit: "vials", costPerUnit: 12.50, totalValue: 562.50, supplier: "DentMed Supply", lastOrdered: "2024-01-15" },
@@ -421,6 +424,9 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
   // First, create a scheduled appointment for each patient's lastVisit if they have one
   patientsList.forEach(patient => {
     if (patient.lastVisit) {
+      // compute a realistic price and mark as paid for past scheduled visits
+      const pastPriceOptions = [1500, 500, 1200, 5000, 1500, 3000];
+      const price = getRandomElement(pastPriceOptions as number[]);
       generatedAppointments.push({
         patientId: patient.id || "",
         patientName: `${patient.firstName} ${patient.lastName}`,
@@ -428,11 +434,11 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
         time: `${String(getRandomInt(8, 17)).padStart(2, "0")}:${String(getRandomElement([0, 30])).padStart(2, "0")}`,
         type: getRandomInt(0, APPOINTMENT_TYPES.length - 2), // Avoid 'Other' for past, completed appointments
         doctor: doctorsList.length > 0 ? getRandomElement(doctorsList) : "",
-        price: [1500, 500, 1200, 5000, 1500, 3000][getRandomInt(0, 5)],
+        price: price,
         status: "scheduled",
         paymentStatus: "paid",
         balance: 0,
-        totalPaid: 1, // Will be set correctly by backend or placeholder
+        totalPaid: price,
         notes: "Routine visit completed.",
       });
     }
@@ -536,8 +542,8 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
     const customType = appointmentTypeIndex === APPOINTMENT_TYPES.length - 1 ? "Custom user-defined procedure" : undefined;
     
     // Choose status from new standardized options
-    let status = (isPast ? "scheduled" : getRandomElement(["scheduled", "pending", "reserved", "cancelled"])) as any;
-    let paymentStatus: "paid" | "unpaid" | "half-paid" = "unpaid";
+    let status: AppointmentStatus = isPast ? "scheduled" : getRandomElement(Array.from(APPOINTMENT_STATUSES));
+    let paymentStatus: PaymentStatus = "unpaid";
 
     if (isPast && status === "scheduled") {
       paymentStatus = "paid";
