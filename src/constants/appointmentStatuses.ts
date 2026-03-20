@@ -34,6 +34,22 @@ try {
   console.warn(`[STATUSES] Expected file at: ${statusesPath}`);
 }
 
+// Numeric keys - Single source of truth for seeder and database
+// IMPORTANT: These keys must NEVER change. If adding new statuses, use next available number.
+export const APPOINTMENT_STATUS_KEYS = {
+  SCHEDULED: 1,
+  PENDING: 2,
+  RESERVED: 3,
+  CANCELLED: 4,
+  COMPLETED: 5,
+} as const;
+
+// Map numeric keys to string values for storage
+export const APPOINTMENT_STATUS_VALUES: Record<number, string> = appointmentStatusList.reduce((acc: any, status: any) => {
+  acc[status.key] = status.value || status.key;
+  return acc;
+}, {});
+
 // Build APPOINTMENT_STATUSES object from JSON using value field
 export const APPOINTMENT_STATUSES = appointmentStatusList.reduce((acc: any, status: any) => {
   const statusValue = status.value || status.key; // fallback to key if no value field

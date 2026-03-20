@@ -10,12 +10,11 @@ import { InventoryItem } from "./types/inventory";
 import { FinanceRecord } from "./types/finance";
 import { PaymentMethod } from "./types/paymentMethod";
 import { Notification, NotificationType } from "./types/notification";
-import { getAppointmentTypeName } from "./utils/appointment-types";
-
+import { getAppointmentTypeName, APPOINTMENT_TYPES } from "./utils/appointment-types";
+import { APPOINTMENT_STATUS_KEYS, APPOINTMENT_STATUS_VALUES } from "./constants/appointmentStatuses";
 
 // Sample data for seeding
 const firstNames = [
-  "John",
   "Sarah",
   "Michael",
   "Emily",
@@ -61,24 +60,9 @@ const lastNames = [
 ];
 
 
-const APPOINTMENT_TYPES = [
-  "Routine Cleaning",
-  "Checkup",
-  "Filling",
-  "Root Canal",
-  "Extraction",
-  "Whitening",
-  "Other",
-];
-
 const statuses = ["active", "inactive"];
 
 const insurances = ["Blue Cross", "Aetna", "Delta Dental", "Cigna", "United Healthcare", "None"];
-
-// Appointment statuses - using new standardized statuses only
-// Status options: scheduled, pending, reserved, cancelled
-const APPOINTMENT_STATUSES = ["scheduled", "pending", "reserved", "cancelled"] as const;
-type AppointmentStatus = typeof APPOINTMENT_STATUSES[number];
 
 const PAYMENT_STATUSES = ["paid", "unpaid", "half-paid"] as const;
 type PaymentStatus = typeof PAYMENT_STATUSES[number];
@@ -421,21 +405,25 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
   const sixMonthsLater = new Date(now.getFullYear(), now.getMonth() + 6, now.getDate());
   const oneYearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
 
-  // First, create a scheduled appointment for each patient's lastVisit if they have one
+// First, create a scheduled appointment for each patient's lastVisit if they have one
   patientsList.forEach(patient => {
     if (patient.lastVisit) {
       // compute a realistic price and mark as paid for past scheduled visits
       const pastPriceOptions = [1500, 500, 1200, 5000, 1500, 3000];
-      const price = getRandomElement(pastPriceOptions as number[]);
+      const appointmentTypeIndex = getRandomInt(0, APPOINTMENT_TYPES.length - 2);
+      const price = pastPriceOptions[appointmentTypeIndex] || 1000;
+      const duration = appointmentTypeIndex === 0 ? 30 : appointmentTypeIndex === 1 ? 30 : appointmentTypeIndex === 2 ? 45 : appointmentTypeIndex === 3 ? 60 : appointmentTypeIndex === 4 ? 45 : 60;
+      
       generatedAppointments.push({
         patientId: patient.id || "",
         patientName: `${patient.firstName} ${patient.lastName}`,
         date: patient.lastVisit,
         time: `${String(getRandomInt(8, 17)).padStart(2, "0")}:${String(getRandomElement([0, 30])).padStart(2, "0")}`,
-        type: getRandomInt(0, APPOINTMENT_TYPES.length - 2), // Avoid 'Other' for past, completed appointments
+        type: appointmentTypeIndex,
+        duration: duration,
         doctor: doctorsList.length > 0 ? getRandomElement(doctorsList) : "",
         price: price,
-        status: "scheduled",
+        status: APPOINTMENT_STATUS_VALUES[APPOINTMENT_STATUS_KEYS.SCHEDULED],
         paymentStatus: "paid",
         balance: 0,
         totalPaid: price,
@@ -449,7 +437,7 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
   const testDoctorName = "Dr. Test Doctor";
   
   if (testPatient) {
-    // 2 in Cart (pending, unpaid)
+    // 2 in Cart (pending, unpaid) - KEY 2
     for (let i = 0; i < 2; i++) {
         const date = new Date(now);
         date.setDate(now.getDate() + getRandomInt(1, 14));
@@ -459,55 +447,55 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
             date: date.toISOString().split("T")[0],
             time: "09:00",
             type: getRandomInt(0, 5),
-            doctor: testDoctorName, // Assign to test doctor
+            doctor: testDoctorName,
             price: 1500,
-            status: "pending",
+            status: APPOINTMENT_STATUS_VALUES[APPOINTMENT_STATUS_KEYS.PENDING],
             paymentStatus: "unpaid",
             balance: 1500,
             totalPaid: 0,
             notes: "Pending in cart."
         });
     }
-    // 1 Reserved (half-paid)
+    // 1 Reserved (half-paid) - KEY 3
     generatedAppointments.push({
         patientId: testPatient.id || "",
         patientName: testPatient.name,
         date: new Date(now.getTime() + 86400000 * 3).toISOString().split("T")[0],
         time: "11:00",
         type: 0,
-        doctor: testDoctorName, // Assign to test doctor
+        doctor: testDoctorName,
         price: 1500,
-        status: "reserved",
+        status: APPOINTMENT_STATUS_VALUES[APPOINTMENT_STATUS_KEYS.RESERVED],
         paymentStatus: "half-paid",
         balance: 1000,
         totalPaid: 500,
         notes: "Reserved slot with partial payment."
     });
-    // 1 Pending (Clinic payment, scheduled)
+    // 1 Pending (Clinic payment) - KEY 2
     generatedAppointments.push({
         patientId: testPatient.id || "",
         patientName: testPatient.name,
         date: new Date(now.getTime() + 86400000 * 4).toISOString().split("T")[0],
         time: "13:30",
         type: 3,
-        doctor: testDoctorName, // Assign to test doctor
+        doctor: testDoctorName,
         price: 5000,
-        status: "pending",
+        status: APPOINTMENT_STATUS_VALUES[APPOINTMENT_STATUS_KEYS.PENDING],
         paymentStatus: "unpaid",
         balance: 5000,
         totalPaid: 0,
         notes: "Pay at clinic request."
     });
-    // 2 in Bookings (scheduled/booked, paid)
-  generatedAppointments.push({
+    // 2 Scheduled (paid) - KEY 1
+    generatedAppointments.push({
         patientId: testPatient.id || "",
         patientName: testPatient.name,
         date: new Date(now.getTime() + 86400000 * 2).toISOString().split("T")[0],
         time: "10:30",
         type: 1,
-        doctor: testDoctorName, // Assign to test doctor
+        doctor: testDoctorName,
         price: 500,
-    status: "scheduled",
+        status: APPOINTMENT_STATUS_VALUES[APPOINTMENT_STATUS_KEYS.SCHEDULED],
         paymentStatus: "paid",
         balance: 0,
         totalPaid: 500,
@@ -519,9 +507,9 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
         date: new Date(now.getTime() + 86400000 * 5).toISOString().split("T")[0],
         time: "14:00",
         type: 2,
-        doctor: testDoctorName, // Assign to test doctor
+        doctor: testDoctorName,
         price: 1200,
-        status: "scheduled",
+        status: APPOINTMENT_STATUS_VALUES[APPOINTMENT_STATUS_KEYS.SCHEDULED],
         paymentStatus: "paid",
         balance: 0,
         totalPaid: 1200,
@@ -539,22 +527,25 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
     const hour = getRandomInt(8, 17);
     const minute = getRandomElement([0, 30]);
     const appointmentTypeIndex = getRandomInt(0, APPOINTMENT_TYPES.length - 1);
-    const customType = appointmentTypeIndex === APPOINTMENT_TYPES.length - 1 ? "Custom user-defined procedure" : undefined;
+    // Only set customType if type is 6 (Other/Custom)
+    const customType = appointmentTypeIndex === 6 ? "Custom user-defined procedure" : undefined;
+    const duration = appointmentTypeIndex === 0 ? 30 : appointmentTypeIndex === 1 ? 30 : appointmentTypeIndex === 2 ? 45 : appointmentTypeIndex === 3 ? 60 : appointmentTypeIndex === 4 ? 45 : appointmentTypeIndex === 5 ? 60 : 30;
     
-    // Choose status from new standardized options
-    let status: AppointmentStatus = isPast ? "scheduled" : getRandomElement(Array.from(APPOINTMENT_STATUSES));
+    // Choose status from appointment status keys randomly
+    const statusKeys = [APPOINTMENT_STATUS_KEYS.SCHEDULED, APPOINTMENT_STATUS_KEYS.PENDING, APPOINTMENT_STATUS_KEYS.RESERVED, APPOINTMENT_STATUS_KEYS.CANCELLED, APPOINTMENT_STATUS_KEYS.COMPLETED];
+    let statusKey: number = isPast ? APPOINTMENT_STATUS_KEYS.SCHEDULED : getRandomElement(statusKeys);
     let paymentStatus: PaymentStatus = "unpaid";
 
-    if (isPast && status === "scheduled") {
+    if (isPast && statusKey === APPOINTMENT_STATUS_KEYS.SCHEDULED) {
       paymentStatus = "paid";
-    } else if (status === "reserved") {
+    } else if (statusKey === APPOINTMENT_STATUS_KEYS.RESERVED) {
       // reserved == partial payment
       paymentStatus = "half-paid";
-    } else if (status === "pending") {
+    } else if (statusKey === APPOINTMENT_STATUS_KEYS.PENDING) {
       paymentStatus = "unpaid";
-    } else if (status === "cancelled") {
+    } else if (statusKey === APPOINTMENT_STATUS_KEYS.CANCELLED) {
       paymentStatus = "unpaid";
-    } else if (status === "scheduled" && !isPast) {
+    } else if (statusKey === APPOINTMENT_STATUS_KEYS.SCHEDULED && !isPast) {
       // future scheduled appointments randomly paid or unpaid
       paymentStatus = Math.random() > 0.5 ? "paid" : "unpaid";
     }
@@ -573,9 +564,10 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
       time: `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`,
       type: appointmentTypeIndex,
       customType: customType,
+      duration: duration,
       doctor: doctorsList.length > 0 ? getRandomElement(doctorsList) : "",
       price: price,
-  status: status,
+  status: APPOINTMENT_STATUS_VALUES[statusKey],
   paymentStatus: paymentStatus,
       totalPaid: totalPaid,
       balance: balance,
