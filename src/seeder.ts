@@ -10,8 +10,9 @@ import { InventoryItem } from "./types/inventory";
 import { FinanceRecord } from "./types/finance";
 import { PaymentMethod } from "./types/paymentMethod";
 import { Notification, NotificationType } from "./types/notification";
-import { getAppointmentTypeName, APPOINTMENT_TYPES } from "./utils/appointment-types";
-import { APPOINTMENT_STATUS_KEYS, APPOINTMENT_STATUS_VALUES } from "./constants/appointmentStatuses";
+import { APPOINTMENT_TYPES, getAppointmentTypeName } from "./shared/appointmentTypes";
+import { APPOINTMENT_STATUSES } from "./shared/appointmentStatuses";
+import { PAYMENT_STATUSES } from "./shared/paymentStatuses";
 
 // Sample data for seeding
 const firstNames = [
@@ -64,8 +65,8 @@ const statuses = ["active", "inactive"];
 
 const insurances = ["Blue Cross", "Aetna", "Delta Dental", "Cigna", "United Healthcare", "None"];
 
-const PAYMENT_STATUSES = ["paid", "unpaid", "half-paid"] as const;
-type PaymentStatus = typeof PAYMENT_STATUSES[number];
+// PaymentStatus type - matches Appointment.paymentStatus type
+type PaymentStatus = "paid" | "unpaid" | "overdue" | "half-paid" | "over-paid";
 
 const inventoryItemsData: Omit<InventoryItem, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] = [
   { item: "Dental Anesthetic (Lidocaine)", quantity: 45, unit: "vials", costPerUnit: 12.50, totalValue: 562.50, supplier: "DentMed Supply", lastOrdered: "2024-01-15" },
@@ -423,7 +424,7 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
         duration: duration,
         doctor: doctorsList.length > 0 ? getRandomElement(doctorsList) : "",
         price: price,
-        status: APPOINTMENT_STATUS_VALUES[APPOINTMENT_STATUS_KEYS.SCHEDULED],
+        status: APPOINTMENT_STATUSES.find(s => s.value === "scheduled")?.value || "scheduled",
         paymentStatus: "paid",
         balance: 0,
         totalPaid: price,
@@ -449,7 +450,7 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
             type: getRandomInt(0, 5),
             doctor: testDoctorName,
             price: 1500,
-            status: APPOINTMENT_STATUS_VALUES[APPOINTMENT_STATUS_KEYS.PENDING],
+            status: APPOINTMENT_STATUSES.find(s => s.value === "pending")?.value || "pending",
             paymentStatus: "unpaid",
             balance: 1500,
             totalPaid: 0,
@@ -465,7 +466,7 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
         type: 0,
         doctor: testDoctorName,
         price: 1500,
-        status: APPOINTMENT_STATUS_VALUES[APPOINTMENT_STATUS_KEYS.RESERVED],
+        status: APPOINTMENT_STATUSES.find(s => s.value === "reserved")?.value || "reserved",
         paymentStatus: "half-paid",
         balance: 1000,
         totalPaid: 500,
@@ -480,7 +481,7 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
         type: 3,
         doctor: testDoctorName,
         price: 5000,
-        status: APPOINTMENT_STATUS_VALUES[APPOINTMENT_STATUS_KEYS.PENDING],
+        status: APPOINTMENT_STATUSES.find(s => s.value === "pending")?.value || "pending",
         paymentStatus: "unpaid",
         balance: 5000,
         totalPaid: 0,
@@ -495,7 +496,7 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
         type: 1,
         doctor: testDoctorName,
         price: 500,
-        status: APPOINTMENT_STATUS_VALUES[APPOINTMENT_STATUS_KEYS.SCHEDULED],
+        status: APPOINTMENT_STATUSES.find(s => s.value === "scheduled")?.value || "scheduled",
         paymentStatus: "paid",
         balance: 0,
         totalPaid: 500,
@@ -509,7 +510,7 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
         type: 2,
         doctor: testDoctorName,
         price: 1200,
-        status: APPOINTMENT_STATUS_VALUES[APPOINTMENT_STATUS_KEYS.SCHEDULED],
+        status: APPOINTMENT_STATUSES.find(s => s.value === "scheduled")?.value || "scheduled",
         paymentStatus: "paid",
         balance: 0,
         totalPaid: 1200,
@@ -531,21 +532,21 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
     const customType = appointmentTypeIndex === 6 ? "Custom user-defined procedure" : undefined;
     const duration = appointmentTypeIndex === 0 ? 30 : appointmentTypeIndex === 1 ? 30 : appointmentTypeIndex === 2 ? 45 : appointmentTypeIndex === 3 ? 60 : appointmentTypeIndex === 4 ? 45 : appointmentTypeIndex === 5 ? 60 : 30;
     
-    // Choose status from appointment status keys randomly
-    const statusKeys = [APPOINTMENT_STATUS_KEYS.SCHEDULED, APPOINTMENT_STATUS_KEYS.PENDING, APPOINTMENT_STATUS_KEYS.RESERVED, APPOINTMENT_STATUS_KEYS.CANCELLED, APPOINTMENT_STATUS_KEYS.COMPLETED];
-    let statusKey: number = isPast ? APPOINTMENT_STATUS_KEYS.SCHEDULED : getRandomElement(statusKeys);
+    // Choose status from appointment status values randomly
+    const statusValues = ["scheduled", "pending", "reserved", "cancelled", "completed"];
+    let statusValue: string = isPast ? "scheduled" : getRandomElement(statusValues);
     let paymentStatus: PaymentStatus = "unpaid";
 
-    if (isPast && statusKey === APPOINTMENT_STATUS_KEYS.SCHEDULED) {
+    if (isPast && statusValue === "scheduled") {
       paymentStatus = "paid";
-    } else if (statusKey === APPOINTMENT_STATUS_KEYS.RESERVED) {
+    } else if (statusValue === "reserved") {
       // reserved == partial payment
       paymentStatus = "half-paid";
-    } else if (statusKey === APPOINTMENT_STATUS_KEYS.PENDING) {
+    } else if (statusValue === "pending") {
       paymentStatus = "unpaid";
-    } else if (statusKey === APPOINTMENT_STATUS_KEYS.CANCELLED) {
+    } else if (statusValue === "cancelled") {
       paymentStatus = "unpaid";
-    } else if (statusKey === APPOINTMENT_STATUS_KEYS.SCHEDULED && !isPast) {
+    } else if (statusValue === "scheduled" && !isPast) {
       // future scheduled appointments randomly paid or unpaid
       paymentStatus = Math.random() > 0.5 ? "paid" : "unpaid";
     }
@@ -567,8 +568,8 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
       duration: duration,
       doctor: doctorsList.length > 0 ? getRandomElement(doctorsList) : "",
       price: price,
-  status: APPOINTMENT_STATUS_VALUES[statusKey],
-  paymentStatus: paymentStatus,
+      status: statusValue,
+      paymentStatus: paymentStatus,
       totalPaid: totalPaid,
       balance: balance,
       notes: getRandomElement([

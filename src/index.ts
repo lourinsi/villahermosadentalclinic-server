@@ -43,6 +43,7 @@ app.use((req: express.Request, res: express.Response, next: express.NextFunction
 
 import patientRoutes from "./routes/patientRoutes";
 import appointmentRoutes from "./routes/appointmentRoutes";
+import appointmentTypesRoutes from "./routes/appointmentTypes";
 import financeRoutes from "./routes/financeRoutes";
 import paymentRoutes from "./routes/paymentRoutes";
 import paymentMethodRoutes from "./routes/paymentMethodRoutes";
@@ -51,6 +52,7 @@ import inventoryRoutes from "./routes/inventoryRoutes";
 import authRoutes from "./routes/authRoutes";
 import messageRoutes from "./routes/messageRoutes";
 import notificationRoutes from "./routes/notificationRoutes";
+import statusesRoutes from "./routes/statuses";
 import { initializeAuth } from "./controllers/authController";
 import questionnaireRoutes from './routes/questionnaires';
 
@@ -60,6 +62,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/patients", patientRoutes);
 app.use("/api/questionnaires", questionnaireRoutes);
 app.use("/api/appointments", appointmentRoutes);
+app.use("/api/appointment-types", appointmentTypesRoutes);
 app.use("/api/finance", financeRoutes);
 app.use("/api/staff", staffRoutes);
 app.use("/api/inventory", inventoryRoutes);
@@ -67,6 +70,7 @@ app.use("/api/payments", paymentRoutes);
 app.use("/api/payment-methods", paymentMethodRoutes);
 app.use("/api/messages", messageRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/statuses", statusesRoutes);
 console.log('[ROUTES] All routes registered successfully');
 
 // app.get("/users", (req,res)=>{
