@@ -1,4 +1,4 @@
-export type NotificationType = 'appointment' | 'payment' | 'message' | 'system';
+import { NotificationType } from '../shared/notificationStatuses';
 
 export interface Notification {
   id?: string;
@@ -9,13 +9,14 @@ export interface Notification {
   createdAt: string;
   isRead: boolean;
   link?: string;
+  isLog?: boolean; // Marked as true when this is a historical log entry (read-only)
   metadata?: {
     appointmentId?: string;
     currentStatus?: string;
     patientName?: string;
-  appointmentDate?: string;
-  appointmentTime?: string;
-  changedFields?: { [key: string]: any };
+    appointmentDate?: string;
+    appointmentTime?: string;
+    changedFields?: { [key: string]: any };
     isRequest?: boolean;
     isDoctorView?: boolean;
     isAdminView?: boolean;

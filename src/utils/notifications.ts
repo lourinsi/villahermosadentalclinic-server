@@ -1,4 +1,5 @@
-import { Notification, NotificationType } from "../types/notification";
+import { Notification } from "../types/notification";
+import { NotificationType } from "../shared/notificationStatuses";
 import { readData, writeData } from "./storage";
 import { getAppointmentTypeName } from "./appointment-types";
 
@@ -52,7 +53,7 @@ export const updateOrCreateNotificationForAppointment = (
   const notifications = readData<Notification>(COLLECTION);
 
   const existingNotificationIndex = notifications.findIndex(
-    n => n.userId === userId && n.metadata?.appointmentId === appointmentId
+    n => n.userId === userId && n.metadata?.appointmentId === appointmentId && !n.isLog
   );
 
   if (existingNotificationIndex !== -1) {
@@ -251,3 +252,216 @@ export const notifyAppointmentChange = (
     });
   });
 };
+
+/**
+ * HYBRID NOTIFICATION STRATEGY
+ * Creates a NEW notification for significant status/payment changes
+ * Use this when a status or paymentStatus actually changes
+ */
+export const createStatusChangeNotification = (
+  userId: string,
+  appointmentId: string,
+  changeDetails: {
+    oldStatus?: string;
+    newStatus?: string;
+    oldPaymentStatus?: string;
+    newPaymentStatus?: string;
+  },
+  appointmentData: {
+    patientName: string;
+    date: string;
+    time: string;
+    type: string;
+    doctor?: string;
+  }
+) => {
+  const { oldStatus, newStatus, oldPaymentStatus, newPaymentStatus } = changeDetails;
+  const { patientName, date, time, type, doctor } = appointmentData;
+
+  console.log(`[createStatusChangeNotification] START userId=${userId} appointmentId=${appointmentId} oldStatus=${oldStatus} newStatus=${newStatus} oldPaymentStatus=${oldPaymentStatus} newPaymentStatus=${newPaymentStatus}`);
+
+  // Determine title and message based on what changed
+  let title = "Appointment Updated";
+  let message = "";
+  let notificationType: NotificationType = "appointment";
+
+  if (newStatus && oldStatus !== newStatus) {
+    title = "Appointment Status Changed";
+    message = `Your appointment with Dr. ${doctor} for ${type} on ${date} is now ${newStatus}.`;
+    notificationType = "appointment";
+    console.log(`[createStatusChangeNotification] Status change detected: ${oldStatus} -> ${newStatus}`);
+  } else if (newStatus && oldStatus === newStatus) {
+    title = "Appointment Status Update";
+    message = `Your appointment for ${type} on ${date} with Dr. ${doctor} is still ${newStatus}.`;
+    notificationType = "appointment";
+    console.log(`[createStatusChangeNotification] Status refresh: ${newStatus}`);
+  } else if (newPaymentStatus && oldPaymentStatus !== newPaymentStatus) {
+    title = "Payment Status Updated";
+    message = `Payment status for your ${type} appointment updated to: ${newPaymentStatus}`;
+    notificationType = "payment";
+    console.log(`[createStatusChangeNotification] Payment status change detected: ${oldPaymentStatus} -> ${newPaymentStatus}`);
+  } else if (newPaymentStatus && oldPaymentStatus === newPaymentStatus) {
+    title = "Payment Status Updated";
+    message = `Payment status for your ${type} appointment is: ${newPaymentStatus}`;
+    notificationType = "payment";
+    console.log(`[createStatusChangeNotification] Payment status refresh: ${newPaymentStatus}`);
+  }
+
+  // Create NEW notification (don't update existing)
+  createNotification(
+    userId,
+    title,
+    message,
+    notificationType,
+    {
+      appointmentId,
+      currentStatus: newStatus || oldStatus,
+      patientName,
+      appointmentDate: date,
+      appointmentTime: time,
+      changedFields: {
+        ...(oldStatus && newStatus && { status: { from: oldStatus, to: newStatus } }),
+        ...(oldPaymentStatus && newPaymentStatus && { paymentStatus: { from: oldPaymentStatus, to: newPaymentStatus } }),
+        changedAt: new Date().toISOString()
+      }
+    }
+  );
+  
+  console.log(`[createStatusChangeNotification] Notification created for userId=${userId}`);
+};
+
+/**
+ * HYBRID NOTIFICATION STRATEGY
+ * Updates metadata of an existing notification or creates if none exists
+ * Use this for initial request and minor metadata updates (no status/payment change)
+ */
+export const updateNotificationMetadata = (
+  userId: string,
+  appointmentId: string,
+  updates: {
+    title?: string;
+    message?: string;
+    metadata?: Partial<Notification["metadata"]>;
+  }
+) => {
+  const notifications = readData<Notification>(COLLECTION);
+
+  const existingIndex = notifications.findIndex(
+    n => n.userId === userId && n.metadata?.appointmentId === appointmentId && !n.isLog
+  );
+
+  if (existingIndex !== -1) {
+    // Update metadata in existing notification
+    notifications[existingIndex] = {
+      ...notifications[existingIndex],
+      ...(updates.title && { title: updates.title }),
+      ...(updates.message && { message: updates.message }),
+      metadata: {
+        ...notifications[existingIndex].metadata,
+        ...updates.metadata
+      },
+      updatedAt: new Date().toISOString()
+    };
+    writeData(COLLECTION, notifications);
+    console.log(`[notifications] Updated metadata for notification id=${notifications[existingIndex].id}`);
+  } else {
+    console.warn(`[notifications] No existing notification found for user=${userId} appointment=${appointmentId}`);
+  }
+};
+
+/**
+ * LOGGING SYSTEM: Archives the old notification as a log entry (read-only)
+ * Then creates a new active notification for the same appointment
+ * This creates an activity log timeline visible to users
+ */
+export const archiveNotificationAsLog = (
+  userId: string,
+  appointmentId: string
+) => {
+  const notifications = readData<Notification>(COLLECTION);
+  
+  // Find all active notifications for this appointment
+  const activeNotifications = notifications.filter(
+    n => n.userId === userId && n.metadata?.appointmentId === appointmentId && !n.isLog
+  );
+  
+  console.log(`[archiveNotificationAsLog] userId=${userId} appointmentId=${appointmentId} found ${activeNotifications.length} active notifications to archive`);
+  
+  if (activeNotifications.length > 0) {
+    // Mark all as log entries (read-only)
+    notifications.forEach((n, index) => {
+      if (n.userId === userId && n.metadata?.appointmentId === appointmentId && !n.isLog) {
+        notifications[index].isLog = true;
+        notifications[index].isRead = true; // Auto-read logs
+        notifications[index].updatedAt = new Date().toISOString();
+      }
+    });
+    
+    writeData(COLLECTION, notifications);
+    console.log(`[archiveNotificationAsLog] Archived ${activeNotifications.length} notifications`);
+  } else {
+    console.log(`[archiveNotificationAsLog] No existing notification found to archive`);
+  }
+};
+
+/**
+ * HYBRID NOTIFICATION STRATEGY
+ * Archives the old notification as a log entry, then creates NEW notifications for status/payment changes
+ * Notifies multiple recipients of a significant change
+ */
+export const notifyStatusChange = (
+  appointmentId: string,
+  changeType: 'status' | 'payment',
+  oldValue: string,
+  newValue: string,
+  recipientUserIds: string[],
+  appointmentData: {
+    patientName: string;
+    date: string;
+    time: string;
+    type: string;
+    doctor?: string;
+  }
+) => {
+  console.log("[notifyStatusChange] Called with:", {
+    appointmentId,
+    changeType,
+    oldValue,
+    newValue,
+    recipientUserIds,
+    patientName: appointmentData.patientName
+  });
+  
+  recipientUserIds.forEach(userId => {
+    console.log(`[notifyStatusChange] Processing userId: ${userId}`);
+    
+    // First, archive the old notification as a log entry
+    archiveNotificationAsLog(userId, appointmentId);
+    
+    // Then create the new notification
+    if (changeType === 'status') {
+      createStatusChangeNotification(
+        userId,
+        appointmentId,
+        { oldStatus: oldValue, newStatus: newValue },
+        appointmentData
+      );
+    } else if (changeType === 'payment') {
+      createStatusChangeNotification(
+        userId,
+        appointmentId,
+        { oldPaymentStatus: oldValue, newPaymentStatus: newValue },
+        appointmentData
+      );
+    }
+  });
+  
+  // Log all notifications for this appointment after update
+  const allNotifications = readData<Notification>(COLLECTION);
+  const appointmentNotifs = allNotifications.filter(n => n.metadata?.appointmentId === appointmentId);
+  console.log(`[notifyStatusChange] FINAL STATE - Total notifications for appointmentId=${appointmentId}: ${appointmentNotifs.length}`);
+  appointmentNotifs.forEach(n => {
+    console.log(`  → Notification: id=${n.id} userId=${n.userId} isLog=${n.isLog} isRead=${n.isRead} status="${n.metadata?.currentStatus}" title="${n.title}"`);
+  });
+};
+

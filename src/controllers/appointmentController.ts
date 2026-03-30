@@ -7,7 +7,11 @@ import { hasConflict } from "../utils/appointment-helpers";
 import { FinanceRecord } from "../types/finance";
 import { Patient } from "../types/patient";
 import { normalizeStatus } from "../constants/appointmentStatuses";
-import { notifyAppointmentChange } from "../utils/notifications";
+import { 
+  notifyAppointmentChange,
+  notifyStatusChange,
+  updateNotificationMetadata
+} from "../utils/notifications";
 
 const COLLECTION = "appointments";
 
@@ -332,34 +336,137 @@ export const updateAppointment = (
       (updatedAppointment as any).balance = Math.max(0, price - discount - (updatedAppointment.totalPaid || 0));
     }
 
-    const oldStatus = appointments[appointmentIndex].status;
+    const oldStatus = appointments[appointmentIndex].status || 'pending';
+    const oldPaymentStatus = appointments[appointmentIndex].paymentStatus || 'unpaid';
     appointments[appointmentIndex] = updatedAppointment;
     writeData(COLLECTION, appointments);
 
-    // Notify users if status changed
-    if (updates.status && updates.status !== oldStatus) {
-      notifyAppointmentChange(updatedAppointment, 'updated', { oldStatus });
+    console.log("[APPOINTMENT UPDATE] Update request received:", {
+      appointmentId: updatedAppointment.id,
+      updates: updates,
+      "updates.status exists": 'status' in updates,
+      "updates.status value": updates.status,
+      "updates.status type": typeof updates.status,
+      "updates.status truthy": !!updates.status,
+      oldStatus,
+      newStatus: updates.status,
+      statusChanged: updates.status && updates.status !== oldStatus,
+      oldPaymentStatus,
+      newPaymentStatus: updates.paymentStatus,
+      paymentStatusChanged: updates.paymentStatus && updates.paymentStatus !== oldPaymentStatus
+    });
+
+    // HYBRID NOTIFICATION STRATEGY
+    // Create NEW notification for significant status/payment changes
+    // Update existing notification for minor metadata changes only
+    
+    // Only trigger notifications if status or paymentStatus is being explicitly updated
+    if (updates.status) {
+      console.log("[APPOINTMENT UPDATE] ✓ CONDITION PASSED - Status update requested, triggering notifyStatusChange", {
+        statusValue: updates.status,
+        statusType: typeof updates.status
+      });
+      // SIGNIFICANT CHANGE: Status changed → Create NEW notifications for all parties
+      const appointmentId = updatedAppointment.id || '';
+      if (appointmentId) {
+        // Convert doctor name to doctor ID for notifications
+        let doctorId = updatedAppointment.doctor || '';
+        if (doctorId) {
+          const staff = readData<any>("staff");
+          const doctorRecord = staff.find((s: any) => s.name === doctorId);
+          if (doctorRecord && doctorRecord.id) {
+            doctorId = doctorRecord.id;
+          }
+        }
+        
+        notifyStatusChange(
+          appointmentId,
+          'status',
+          oldStatus,
+          updates.status as string,
+          [
+            updatedAppointment.patientId,
+            doctorId,
+            'admin'
+          ],
+          {
+            patientName: updatedAppointment.patientName,
+            date: updatedAppointment.date,
+            time: updatedAppointment.time,
+            type: getAppointmentTypeName(updatedAppointment.type, updatedAppointment.customType),
+            doctor: updatedAppointment.doctor
+          }
+        );
+      }
+    } else if (updates.paymentStatus && updates.paymentStatus !== oldPaymentStatus) {
+      // SIGNIFICANT CHANGE: Payment status changed → Create NEW payment notifications
+      const appointmentId = updatedAppointment.id || '';
+      if (appointmentId) {
+        notifyStatusChange(
+          appointmentId,
+          'payment',
+          oldPaymentStatus,
+          updates.paymentStatus as string,
+          [
+            updatedAppointment.patientId,
+            'admin'
+          ],
+          {
+            patientName: updatedAppointment.patientName,
+            date: updatedAppointment.date,
+            time: updatedAppointment.time,
+            type: getAppointmentTypeName(updatedAppointment.type, updatedAppointment.customType),
+            doctor: updatedAppointment.doctor
+          }
+        );
+      }
     } else {
-      // Also notify when the appointment details are changed (reschedule or edit)
-      // so notifications reflect the new date/time/doctor/duration/type.
+      // MINOR CHANGE: Only metadata changed (time, notes, spelling) → Update existing notification
       const detailFieldsChanged = (
         updates.date ||
         updates.time ||
         updates.duration !== undefined ||
         updates.doctor ||
         updates.type !== undefined ||
-        updates.customType
+        updates.customType ||
+        updates.notes
       );
 
       if (detailFieldsChanged) {
-        // Compute which fields changed and include them in the notification metadata
-        const changedFields: { [key: string]: any } = {};
-        ['date', 'time', 'duration', 'doctor', 'type', 'customType', 'price', 'notes'].forEach((f) => {
-          if ((updates as any)[f] !== undefined) changedFields[f] = (updates as any)[f];
-        });
-        notifyAppointmentChange(updatedAppointment, 'updated', { oldStatus, changedFields });
+        const appointmentId = updatedAppointment.id || '';
+        if (appointmentId) {
+          // Update existing notification for each affected party
+          [updatedAppointment.patientId, 'admin'].forEach(userId => {
+            if (userId) {
+              updateNotificationMetadata(
+                userId,
+                appointmentId,
+                {
+                  message: `Your appointment on ${updatedAppointment.date} at ${updatedAppointment.time} has been updated.`,
+                  metadata: {
+                    appointmentDate: updatedAppointment.date,
+                    appointmentTime: updatedAppointment.time,
+                    changedFields: {
+                      date: updates.date,
+                      time: updates.time,
+                      doctor: updates.doctor,
+                      notes: updates.notes,
+                      updatedAt: new Date().toISOString()
+                    }
+                  }
+                }
+              );
+            }
+          });
+        }
       }
     }
+
+    console.log("[APPOINTMENT UPDATE] Branch determination summary:", {
+      "if (updates.status)": !!updates.status,
+      "else if (updates.paymentStatus && ...)": !!(updates.paymentStatus && updates.paymentStatus !== oldPaymentStatus),
+      "else (metadata)": !(updates.status || (updates.paymentStatus && updates.paymentStatus !== oldPaymentStatus))
+    });
 
     res.json({
       success: true,
@@ -392,6 +499,9 @@ export const deleteAppointment = (
       });
     }
 
+    const appointmentToDelete = appointments[appointmentIndex];
+    const oldStatus = appointmentToDelete.status || 'pending';
+
     // soft delete
     appointments[appointmentIndex] = {
       ...appointments[appointmentIndex],
@@ -402,6 +512,39 @@ export const deleteAppointment = (
     writeData(COLLECTION, appointments);
 
     console.log("[APPOINTMENT DELETE] Soft-deleted appointment:", appointments[appointmentIndex]);
+
+    // NOTIFICATION: Notify all parties about the cancellation
+    const appointmentId = appointmentToDelete.id || '';
+    if (appointmentId) {
+      // Convert doctor name to doctor ID for notifications
+      let doctorId = appointmentToDelete.doctor || '';
+      if (doctorId) {
+        const staff = readData<any>("staff");
+        const doctorRecord = staff.find((s: any) => s.name === doctorId);
+        if (doctorRecord && doctorRecord.id) {
+          doctorId = doctorRecord.id;
+        }
+      }
+      
+      notifyStatusChange(
+        appointmentId,
+        'status',
+        oldStatus,
+        'cancelled',
+        [
+          appointmentToDelete.patientId,
+          doctorId,
+          'admin'
+        ],
+        {
+          patientName: appointmentToDelete.patientName,
+          date: appointmentToDelete.date,
+          time: appointmentToDelete.time,
+          type: getAppointmentTypeName(appointmentToDelete.type, appointmentToDelete.customType),
+          doctor: appointmentToDelete.doctor
+        }
+      );
+    }
 
     res.json({
       success: true,
