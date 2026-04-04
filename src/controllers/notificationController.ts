@@ -226,3 +226,38 @@ export const markAllAsRead = (req: Request, res: Response<ApiResponse<null>>) =>
     });
   }
 };
+
+export const deleteAllNotifications = (req: Request, res: Response<ApiResponse<null>>) => {
+  try {
+    const notifications = readData<Notification>(COLLECTION);
+    const { userId } = req.query as Record<string, string>;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "userId is required",
+      });
+    }
+
+    const updatedNotifications = notifications.map(n => {
+      if (n.userId === userId && !n.deleted) {
+        return { ...n, deleted: true, deletedAt: new Date().toISOString() };
+      }
+      return n;
+    });
+
+    writeData(COLLECTION, updatedNotifications);
+
+    res.json({
+      success: true,
+      message: "All notifications cleared",
+    });
+  } catch (error) {
+    console.error("Error deleting all notifications:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error clearing notifications",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};

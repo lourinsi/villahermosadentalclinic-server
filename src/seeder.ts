@@ -635,6 +635,11 @@ function generateNotifications(patients: Patient[], staff: Staff[], appointments
       isRead: false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      metadata: {
+        alertType: "inventory",
+        itemName: "Dental Anesthetic (Lidocaine)",
+        quantity: 45
+      }
     });
 
     notifications.push({
@@ -645,6 +650,10 @@ function generateNotifications(patients: Patient[], staff: Staff[], appointments
       isRead: false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      metadata: {
+        alertType: "payment",
+        status: "pending_reconciliation"
+      }
     });
   });
 
@@ -682,9 +691,9 @@ function generateNotifications(patients: Patient[], staff: Staff[], appointments
       if (apt.patientId) {
         let patientMessage = "";
         if (aptStatus === "scheduled") {
-          patientMessage = `Your appointment for ${serviceName} on ${apt.date} has been confirmed.`;
+          patientMessage = `Your appointment for ${serviceName} on ${apt.date} at ${apt.time} with ${apt.doctor} has been confirmed.`;
         } else if (aptStatus === "completed") {
-          patientMessage = `Your appointment for ${serviceName} on ${apt.date} has been completed.`;
+          patientMessage = `Your appointment for ${serviceName} on ${apt.date} has been completed. Thank you for visiting!`;
         } else if (aptStatus === "cancelled") {
           patientMessage = `Your appointment for ${serviceName} on ${apt.date} has been cancelled.`;
         }
@@ -703,6 +712,8 @@ function generateNotifications(patients: Patient[], staff: Staff[], appointments
             patientName: apt.patientName,
             appointmentDate: apt.date,
             appointmentTime: apt.time,
+            appointmentType: serviceName,
+            doctorName: apt.doctor,
             isRequest: isRequest,
             isPatientView: true,
             changedFields: {
@@ -716,7 +727,7 @@ function generateNotifications(patients: Patient[], staff: Staff[], appointments
       if (assignedDoctor && assignedDoctor.id) {
         let doctorMessage = "";
         if (aptStatus === "scheduled") {
-          doctorMessage = `Appointment with ${apt.patientName} for ${serviceName} on ${apt.date} is confirmed.`;
+          doctorMessage = `Appointment with ${apt.patientName} for ${serviceName} on ${apt.date} at ${apt.time} is confirmed.`;
         } else if (aptStatus === "completed") {
           doctorMessage = `Appointment with ${apt.patientName} for ${serviceName} on ${apt.date} has been completed.`;
         } else if (aptStatus === "cancelled") {
@@ -735,8 +746,12 @@ function generateNotifications(patients: Patient[], staff: Staff[], appointments
             appointmentId: apt.id,
             currentStatus: aptStatus,
             patientName: apt.patientName,
+            patientId: apt.patientId,
             appointmentDate: apt.date,
             appointmentTime: apt.time,
+            appointmentType: serviceName,
+            price: apt.price,
+            paymentStatus: apt.paymentStatus,
             isRequest: isRequest,
             isDoctorView: true,
             changedFields: {
@@ -752,7 +767,7 @@ function generateNotifications(patients: Patient[], staff: Staff[], appointments
 
         let adminMessage = "";
         if (aptStatus === "scheduled") {
-          adminMessage = `${apt.doctor || "A doctor"} has confirmed the appointment for ${apt.patientName} (${serviceName}) on ${apt.date}.`;
+          adminMessage = `${apt.doctor || "A doctor"} has confirmed the appointment for ${apt.patientName} (${serviceName}) on ${apt.date} at ${apt.time}.`;
         } else if (aptStatus === "completed") {
           adminMessage = `Appointment for ${apt.patientName} (${serviceName}) with ${apt.doctor || "a doctor"} on ${apt.date} has been completed.`;
         } else if (aptStatus === "cancelled") {
@@ -771,8 +786,13 @@ function generateNotifications(patients: Patient[], staff: Staff[], appointments
             appointmentId: apt.id,
             currentStatus: aptStatus,
             patientName: apt.patientName,
+            patientId: apt.patientId,
             appointmentDate: apt.date,
             appointmentTime: apt.time,
+            appointmentType: serviceName,
+            doctorName: apt.doctor,
+            price: apt.price,
+            paymentStatus: apt.paymentStatus,
             isRequest: isRequest,
             isAdminView: true,
             changedFields: {
@@ -789,7 +809,7 @@ function generateNotifications(patients: Patient[], staff: Staff[], appointments
         notifications.push({
           userId: apt.patientId,
           title: "Payment Status Updated",
-          message: `Payment received for your ${serviceName} appointment. Status: Half-Paid`,
+          message: `Payment received for your ${serviceName} appointment. Status: Half-Paid (${apt.totalPaid}/${apt.price})`,
           type: "payment" as NotificationType,
           isRead: Math.random() > 0.3,
           createdAt: getIsoDate(apt.createdAt),
@@ -798,8 +818,13 @@ function generateNotifications(patients: Patient[], staff: Staff[], appointments
             appointmentId: apt.id,
             currentStatus: aptStatus,
             patientName: apt.patientName,
+            patientId: apt.patientId,
             appointmentDate: apt.date,
             appointmentTime: apt.time,
+            appointmentType: serviceName,
+            price: apt.price,
+            totalPaid: apt.totalPaid,
+            balance: apt.balance,
             isRequest: true,
             isPatientView: true,
             changedFields: {
@@ -814,7 +839,7 @@ function generateNotifications(patients: Patient[], staff: Staff[], appointments
         notifications.push({
           userId: adminId,
           title: "Payment Received",
-          message: `Partial payment received from ${apt.patientName} for ${serviceName} appointment on ${apt.date}.`,
+          message: `Partial payment received from ${apt.patientName} for ${serviceName} appointment on ${apt.date}. Amount: ${apt.totalPaid}/${apt.price}`,
           type: "payment" as NotificationType,
           isRead: Math.random() > 0.3,
           createdAt: getIsoDate(apt.createdAt),
@@ -823,8 +848,15 @@ function generateNotifications(patients: Patient[], staff: Staff[], appointments
             appointmentId: apt.id,
             currentStatus: aptStatus,
             patientName: apt.patientName,
+            patientId: apt.patientId,
             appointmentDate: apt.date,
             appointmentTime: apt.time,
+            appointmentType: serviceName,
+            doctorName: apt.doctor,
+            price: apt.price,
+            totalPaid: apt.totalPaid,
+            balance: apt.balance,
+            paymentStatus: apt.paymentStatus,
             isRequest: true,
             isAdminView: true,
             changedFields: {

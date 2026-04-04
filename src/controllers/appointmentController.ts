@@ -111,6 +111,7 @@ export const addAppointment = (req: Request, res: Response<ApiResponse<Appointme
       notes: appointmentData.notes || "",
       status: appointmentData.status || "scheduled",
       paymentStatus: appointmentData.paymentStatus || "unpaid",
+      totalPaid: appointmentData.totalPaid || 0,
       balance: appointmentData.balance != null ? appointmentData.balance : Math.max(0, price - discount),
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -288,11 +289,17 @@ export const updateAppointment = (
     const oldAppointment = appointments[appointmentIndex];
 
     console.log("[APPOINTMENT UPDATE] appointmentId=", id);
-    console.log("[APPOINTMENT UPDATE] oldAppointment=", JSON.stringify(oldAppointment, null, 2));
-    console.log("[APPOINTMENT UPDATE] updates=", JSON.stringify(updates, null, 2));
+    
+    // Derive totalPaid if missing from legacy records
+    const derivedTotalPaid = oldAppointment.totalPaid !== undefined 
+      ? oldAppointment.totalPaid 
+      : (oldAppointment.price !== undefined && oldAppointment.balance !== undefined 
+        ? Math.max(0, oldAppointment.price - (oldAppointment.discount || 0) - oldAppointment.balance) 
+        : 0);
 
     const updatedAppointment: Appointment = {
       ...oldAppointment,
+      totalPaid: derivedTotalPaid,
       ...updates,
       id: oldAppointment.id, // Prevent ID change
       updatedAt: new Date(),
@@ -643,6 +650,7 @@ export const bookPublicAppointment = async (req: Request, res: Response<ApiRespo
       serviceType: serviceType || "",
       status: "pending", // Public bookings are pending by default
       paymentStatus: "unpaid",
+      totalPaid: 0,
       balance: Math.max(0, price - discount),
       createdAt: new Date(),
       updatedAt: new Date(),
