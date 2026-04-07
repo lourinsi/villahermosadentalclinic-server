@@ -16,6 +16,10 @@ export interface Notification {
     patientName?: string;
     appointmentDate?: string;
     appointmentTime?: string;
+    doctor?: string;
+    amount?: number;
+    paymentDate?: string;
+    paymentId?: string;
     changedFields?: { [key: string]: any };
     isRequest?: boolean;
     isDoctorView?: boolean;

@@ -4,7 +4,14 @@ import { readData, writeData } from "../utils/storage";
 import { hasConflict } from "../utils/appointment-helpers";
 import { Appointment } from "../types/appointment";
 import { Patient } from "../types/patient";
-import { createNotification, notifyAdmin, updateOrCreateNotificationForAppointment } from "../utils/notifications";
+import { 
+  createNotification, 
+  notifyAdmin, 
+  updateOrCreateNotificationForAppointment,
+  notifyPaymentReceived,
+  notifyStatusChange,
+  resolveRecipients
+} from "../utils/notifications";
 import { getAppointmentTypeName } from "../utils/appointment-types";
 
 const COLLECTION = "payments";
@@ -65,6 +72,9 @@ export const createPayment = (req: Request, res: Response<ApiResponse<any>>) => 
       apt.totalPaid = (apt.totalPaid || 0) + payAmount;
       apt.balance = (apt.balance != null ? apt.balance : (apt.price || 0)) - apt.totalPaid; // Recalculate based on total paid
       
+      const oldStatus = apt.status || 'pending';
+      const oldPaymentStatus = apt.paymentStatus || 'unpaid';
+
       if (apt.balance <= 0) apt.paymentStatus = 'paid';
       else if (apt.totalPaid > 0) apt.paymentStatus = 'half-paid';
       else apt.paymentStatus = 'unpaid';
@@ -93,71 +103,42 @@ export const createPayment = (req: Request, res: Response<ApiResponse<any>>) => 
         } else {
           if (isPayAtClinic) {
             apt.status = 'pending';
-            // User said: "When this is used change the status to 'To Pay' ... and it should be scheduled too as well"
-            // This is slightly contradictory in status terms, but I'll set it to 'To Pay'
-            // and maybe 'To Pay' is treated as scheduled in the calendar.
-            // Or did they mean status should be 'scheduled' but we call it 'To Pay'?
-            // Re-reading: "change the status to 'To Pay' ... and it should be scheduled too as well"
-            // I'll stick with 'To Pay' as the status.
           } else if (apt.paymentStatus === 'paid') {
             apt.status = 'scheduled';
           } else if (apt.paymentStatus === 'half-paid') {
             apt.status = 'reserved';
           }
-          
-          notifyAdmin(
-            `Appointment Updated: ${apt.status}`,
-            `${apt.patientName} has updated their appointment for ${getAppointmentTypeName(apt.type, apt.customType)} on ${apt.date} at ${apt.time}. Status: ${apt.status}`,
-            "appointment",
-            { 
-              appointmentId: apt.id, 
-              currentStatus: apt.status, 
-              patientName: apt.patientName,
-              isRequest: ['pending', 'reserved'].includes(apt.status || '')
-            }
-          );
         }
-      } else if (apt.status === 'reserved' && apt.paymentStatus === 'paid') {
-        // If it was tentative and now fully paid, it might become scheduled? 
-        // But user said: "When accepted by the doctor/admin, the appointment status will then be updated to scheduled."
-        // So we leave it as tentative or confirmed? I'll leave it as is for now.
-      }
-
-      // Notify Patient
-      let message = `We have received your payment of ₱${payAmount}.`;
-      if (isPayAtClinic) {
-        message = `Your request to pay at the clinic for your appointment on ${apt.date} has been received. Status: ${apt.status}.`;
-      } else if (conflictFound) {
-        message = `We have received your payment of ₱${payAmount}. However, there is a scheduling conflict. Our staff will contact you.`;
-      } else if (apt.status === 'reserved') {
-        message = `We have received your partial payment of ₱${payAmount}. Your slot is reserved but not yet fully scheduled. It will be updated once accepted by our staff.`;
-      } else if (apt.status === 'scheduled') {
-        message = `Your payment of ₱${payAmount} was successful. Your appointment on ${apt.date} is now scheduled.`;
-      }
-
-      // Use appointment-scoped updater so payment notifications are tied to the
-      // appointment notification and get updated when the appointment changes.
-      const pid = apt.patientId;
-      const isReq = !!(apt.status && ['To Pay', 'tentative'].includes(apt.status));
-      if (pid) {
-  updateOrCreateNotificationForAppointment(pid, String(apt.id), {
-        title: "Appointment Status Update",
-        message,
-        type: "appointment",
-        metadata: {
-          appointmentId: apt.id,
-          currentStatus: apt.status,
-          patientName: apt.patientName,
-          appointmentDate: apt.date,
-          appointmentTime: apt.time,
-          isRequest: isReq
-        }
-        });
       }
 
       apt.updatedAt = new Date();
       appointments[idx] = apt;
       writeData('appointments', appointments);
+
+      // Centralized Notifications
+      const recipients = resolveRecipients(apt);
+      const appointmentData = {
+        patientName: apt.patientName,
+        date: apt.date,
+        time: apt.time,
+        type: getAppointmentTypeName(apt.type, apt.customType),
+        doctor: apt.doctor
+      };
+
+      // 1. Notify Status Change (if any)
+      if (apt.status !== oldStatus) {
+        notifyStatusChange(apt.id || '', 'status', oldStatus, apt.status as string, recipients, appointmentData);
+      }
+      
+      // 2. Notify Payment Status Change (if any)
+      if (apt.paymentStatus !== oldPaymentStatus) {
+        notifyStatusChange(apt.id || '', 'payment', oldPaymentStatus, apt.paymentStatus as string, recipients, appointmentData);
+      }
+
+      // 3. Notify Specific Payment Receipt
+      if (payAmount > 0) {
+        notifyPaymentReceived(apt.id || '', payAmount, recipients, appointmentData, newPayment.id);
+      }
     }
 
     // update patient balance if present
@@ -260,6 +241,8 @@ export const updatePayment = (req: Request, res: Response<ApiResponse<any>>) => 
       if (aptIndex !== -1) {
         const apt = appointments[aptIndex];
         const amountDiff = Number(amount) - oldAmount;
+        const oldPaymentStatus = apt.paymentStatus || 'unpaid';
+        
         apt.totalPaid = (apt.totalPaid || 0) + amountDiff;
         apt.balance = (apt.balance != null ? apt.balance : (apt.price || 0)) - amountDiff;
         if (apt.balance <= 0) apt.paymentStatus = 'paid';
@@ -268,6 +251,24 @@ export const updatePayment = (req: Request, res: Response<ApiResponse<any>>) => 
         apt.updatedAt = new Date();
         appointments[aptIndex] = apt;
         writeData('appointments', appointments);
+
+        // Notifications for update
+        const recipients = resolveRecipients(apt);
+        const appointmentData = {
+          patientName: apt.patientName,
+          date: apt.date,
+          time: apt.time,
+          type: getAppointmentTypeName(apt.type, apt.customType),
+          doctor: apt.doctor
+        };
+
+        if (amountDiff > 0) {
+          notifyPaymentReceived(apt.id || '', amountDiff, recipients, appointmentData, id);
+        }
+
+        if (apt.paymentStatus !== oldPaymentStatus) {
+          notifyStatusChange(apt.id || '', 'payment', oldPaymentStatus, apt.paymentStatus as string, recipients, appointmentData);
+        }
       }
 
       // Update patient balance
@@ -379,6 +380,7 @@ export const deletePayment = (req: Request, res: Response<ApiResponse<any>>) => 
       const apt = appointments[aptIndex];
       console.log("[DELETE PAYMENT] Before update - totalPaid:", apt.totalPaid, "balance:", apt.balance);
       
+      const oldPaymentStatus = apt.paymentStatus || 'unpaid';
       apt.totalPaid = Math.max(0, (apt.totalPaid || 0) - paymentAmount);
       apt.balance = (apt.balance != null ? apt.balance : (apt.price || 0)) + paymentAmount;
       if (apt.balance <= 0) apt.paymentStatus = 'paid';
@@ -389,6 +391,25 @@ export const deletePayment = (req: Request, res: Response<ApiResponse<any>>) => 
       
       console.log("[DELETE PAYMENT] After update - totalPaid:", apt.totalPaid, "balance:", apt.balance, "status:", apt.paymentStatus);
       writeData('appointments', appointments);
+
+      // Notify if status changed
+      if (apt.paymentStatus !== oldPaymentStatus) {
+        const recipients = resolveRecipients(apt);
+        notifyStatusChange(
+          apt.id || '', 
+          'payment', 
+          oldPaymentStatus, 
+          apt.paymentStatus as string, 
+          recipients, 
+          {
+            patientName: apt.patientName,
+            date: apt.date,
+            time: apt.time,
+            type: getAppointmentTypeName(apt.type, apt.customType),
+            doctor: apt.doctor
+          }
+        );
+      }
     }
 
     // Update patient balance

@@ -10,7 +10,9 @@ import { normalizeStatus } from "../constants/appointmentStatuses";
 import { 
   notifyAppointmentChange,
   notifyStatusChange,
-  updateNotificationMetadata
+  notifyPaymentReceived,
+  updateNotificationMetadata,
+  resolveRecipients
 } from "../utils/notifications";
 
 const COLLECTION = "appointments";
@@ -125,6 +127,45 @@ export const addAppointment = (req: Request, res: Response<ApiResponse<Appointme
 
     // Centralized notification logic
     notifyAppointmentChange(newAppointment, 'created');
+
+    const recipients = resolveRecipients(newAppointment);
+    console.log(`[APPOINTMENT CREATE] Final recipients list for payment: ${recipients.join(',')}`);
+
+    // Payment status notification if not unpaid
+    if (newAppointment.paymentStatus && newAppointment.paymentStatus !== 'unpaid') {
+      notifyStatusChange(
+        newAppointment.id || '',
+        'payment',
+        'unpaid',
+        newAppointment.paymentStatus,
+        recipients,
+        {
+          patientName: newAppointment.patientName,
+          date: newAppointment.date,
+          time: newAppointment.time,
+          type: getAppointmentTypeName(newAppointment.type, newAppointment.customType),
+          doctor: newAppointment.doctor
+        }
+      );
+    }
+
+    // Payment notification for specific amount if initial payment was made
+    if (newAppointment.totalPaid && newAppointment.totalPaid > 0) {
+      console.log(`[APPOINTMENT CREATE] Initial payment detected: ${newAppointment.totalPaid}. Triggering notifyPaymentReceived.`);
+      notifyPaymentReceived(
+        newAppointment.id || '',
+        newAppointment.totalPaid,
+        recipients,
+        {
+          patientName: newAppointment.patientName,
+          date: newAppointment.date,
+          time: newAppointment.time,
+          type: getAppointmentTypeName(newAppointment.type, newAppointment.customType),
+          doctor: newAppointment.doctor
+        },
+        `initial_${newAppointment.id}` // Use a unique ID for initial payment
+      );
+    }
 
     res.status(201).json({
       success: true,
@@ -297,6 +338,9 @@ export const updateAppointment = (
         ? Math.max(0, oldAppointment.price - (oldAppointment.discount || 0) - oldAppointment.balance) 
         : 0);
 
+    const recipients = resolveRecipients({ ...oldAppointment, ...updates });
+    console.log(`[APPOINTMENT UPDATE] Notification Recipients resolved: ${recipients.join(',')}`);
+
     const updatedAppointment: Appointment = {
       ...oldAppointment,
       totalPaid: derivedTotalPaid,
@@ -348,6 +392,31 @@ export const updateAppointment = (
     appointments[appointmentIndex] = updatedAppointment;
     writeData(COLLECTION, appointments);
 
+    // PAYMENT RECEIVED NOTIFICATION
+    const oldTotalPaidValue = derivedTotalPaid || 0;
+    const newTotalPaidValue = updatedAppointment.totalPaid || 0;
+    const paymentAmount = newTotalPaidValue - oldTotalPaidValue;
+    
+    if (paymentAmount > 0) {
+      console.log(`[APPOINTMENT UPDATE] Payment received: ${paymentAmount} (total: ${newTotalPaidValue}). Triggering notifyPaymentReceived.`);
+      const appointmentId = updatedAppointment.id || '';
+      if (appointmentId) {
+        notifyPaymentReceived(
+          appointmentId,
+          paymentAmount,
+          recipients,
+          {
+            patientName: updatedAppointment.patientName,
+            date: updatedAppointment.date,
+            time: updatedAppointment.time,
+            type: getAppointmentTypeName(updatedAppointment.type, updatedAppointment.customType),
+            doctor: updatedAppointment.doctor
+          },
+          `update_${appointmentId}_${Date.now()}` // Use a unique ID for update payment
+        );
+      }
+    }
+
     console.log("[APPOINTMENT UPDATE] Update request received:", {
       appointmentId: updatedAppointment.id,
       updates: updates,
@@ -376,26 +445,12 @@ export const updateAppointment = (
       // SIGNIFICANT CHANGE: Status changed → Create NEW notifications for all parties
       const appointmentId = updatedAppointment.id || '';
       if (appointmentId) {
-        // Convert doctor name to doctor ID for notifications
-        let doctorId = updatedAppointment.doctor || '';
-        if (doctorId) {
-          const staff = readData<any>("staff");
-          const doctorRecord = staff.find((s: any) => s.name === doctorId);
-          if (doctorRecord && doctorRecord.id) {
-            doctorId = doctorRecord.id;
-          }
-        }
-        
         notifyStatusChange(
           appointmentId,
           'status',
           oldStatus,
           updates.status as string,
-          [
-            updatedAppointment.patientId,
-            doctorId,
-            'admin'
-          ],
+          recipients,
           {
             patientName: updatedAppointment.patientName,
             date: updatedAppointment.date,
@@ -405,7 +460,9 @@ export const updateAppointment = (
           }
         );
       }
-    } else if (updates.paymentStatus && updates.paymentStatus !== oldPaymentStatus) {
+    }
+    
+    if (updates.paymentStatus && updates.paymentStatus !== oldPaymentStatus) {
       // SIGNIFICANT CHANGE: Payment status changed → Create NEW payment notifications
       const appointmentId = updatedAppointment.id || '';
       if (appointmentId) {
@@ -414,10 +471,7 @@ export const updateAppointment = (
           'payment',
           oldPaymentStatus,
           updates.paymentStatus as string,
-          [
-            updatedAppointment.patientId,
-            'admin'
-          ],
+          recipients,
           {
             patientName: updatedAppointment.patientName,
             date: updatedAppointment.date,
@@ -427,7 +481,9 @@ export const updateAppointment = (
           }
         );
       }
-    } else {
+    }
+    
+    if (!updates.status && !updates.paymentStatus) {
       // MINOR CHANGE: Only metadata changed (time, notes, spelling) → Update existing notification
       const detailFieldsChanged = (
         updates.date ||
@@ -443,7 +499,7 @@ export const updateAppointment = (
         const appointmentId = updatedAppointment.id || '';
         if (appointmentId) {
           // Update existing notification for each affected party
-          [updatedAppointment.patientId, 'admin'].forEach(userId => {
+          recipients.forEach(userId => {
             if (userId) {
               updateNotificationMetadata(
                 userId,
@@ -523,26 +579,14 @@ export const deleteAppointment = (
     // NOTIFICATION: Notify all parties about the cancellation
     const appointmentId = appointmentToDelete.id || '';
     if (appointmentId) {
-      // Convert doctor name to doctor ID for notifications
-      let doctorId = appointmentToDelete.doctor || '';
-      if (doctorId) {
-        const staff = readData<any>("staff");
-        const doctorRecord = staff.find((s: any) => s.name === doctorId);
-        if (doctorRecord && doctorRecord.id) {
-          doctorId = doctorRecord.id;
-        }
-      }
+      const recipients = resolveRecipients(appointmentToDelete);
       
       notifyStatusChange(
         appointmentId,
         'status',
         oldStatus,
         'cancelled',
-        [
-          appointmentToDelete.patientId,
-          doctorId,
-          'admin'
-        ],
+        recipients,
         {
           patientName: appointmentToDelete.patientName,
           date: appointmentToDelete.date,
