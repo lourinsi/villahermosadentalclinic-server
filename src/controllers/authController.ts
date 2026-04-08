@@ -151,6 +151,7 @@ export const login = async (
       const token = jwt.sign(
         {
           username: ADMIN_USERNAME,
+          name: "Admin",
           role: "admin",
           iat: Math.floor(Date.now() / 1000),
         },
@@ -211,6 +212,7 @@ export const login = async (
       const token = jwt.sign(
         {
           username: doctor.name,
+          name: doctor.name,
           role: "doctor",
           staffId: doctor.id,
           iat: Math.floor(Date.now() / 1000),
@@ -280,6 +282,7 @@ export const login = async (
       const token = jwt.sign(
         {
           username: doctor.name,
+          name: doctor.name,
           role: "doctor",
           staffId: doctor.id,
           iat: Math.floor(Date.now() / 1000),
@@ -355,6 +358,7 @@ export const login = async (
         {
           id: patient.id,
           username: patient.email, // Use email as username for server-side patient filtering
+          name: patient.name,
           email: patient.email,
           role: "patient",
           patientId: patient.id,

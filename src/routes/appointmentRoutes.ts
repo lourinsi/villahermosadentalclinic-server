@@ -6,12 +6,20 @@ import {
   updateAppointment,
   deleteAppointment,
   bookPublicAppointment,
+  fetchAppointmentLogs,
+  fetchPaymentLogs,
 } from "../controllers/appointmentController";
 
 const router = Router();
 
 // POST - Public booking (no auth required)
 router.post("/public-book", bookPublicAppointment);
+
+// GET - Appointment logs
+router.get("/:id/logs", fetchAppointmentLogs);
+
+// GET - Payment logs
+router.get("/:id/payments", fetchPaymentLogs);
 
 // POST - Add new appointment
 router.post("/", addAppointment);

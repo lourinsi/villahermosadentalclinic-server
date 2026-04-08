@@ -15,6 +15,7 @@ export interface Appointment {
   // Status is flexible to accept any value from the JSON configuration
   status?: string;
   paymentStatus?: "paid" | "unpaid" | "overdue" | "half-paid" | "over-paid";
+  paymentMethod?: string; // Payment method (e.g., 'cash', 'card', 'check')
   balance?: number;
   totalPaid?: number;
   // Deprecated: transactions are now stored in payments collection. Keep for backward compat only.

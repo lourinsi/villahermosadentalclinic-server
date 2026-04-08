@@ -14,6 +14,8 @@ import {
   updateNotificationMetadata,
   resolveRecipients
 } from "../utils/notifications";
+import { createAppointmentLog, getAppointmentLogs } from "../utils/appointmentLogs";
+import { createPaymentLog, getPaymentLogs } from "../utils/paymentLogs";
 
 const COLLECTION = "appointments";
 
@@ -40,46 +42,20 @@ export const addAppointment = (req: Request, res: Response<ApiResponse<Appointme
     }
 
     // Check for conflicts
-    // First, check for same-patient overlap (patient cannot be double-booked)
-    const timeToMinutes = (timeStr: string): number => {
-      if (!timeStr) return 0;
-      const [hours, minutes] = timeStr.split(":").map(Number);
-      return (hours || 0) * 60 + (minutes || 0);
-    };
-
-    const newStart = timeToMinutes(appointmentData.time);
-    const newDuration = Number(appointmentData.duration) || 60;
-    const newEnd = newStart + newDuration;
     const isSeeding = req.body.isSeeding === true;
 
-    const hasOverlapSamePatient = !isSeeding && appointments.some(apt => {
-      if (apt.deleted || apt.id === appointmentData.id || apt.date !== appointmentData.date) return false;
-      if (apt.patientId === appointmentData.patientId) {
-        const aptStart = timeToMinutes(apt.time);
-        const aptEnd = aptStart + (Number(apt.duration) || 60);
-        return newStart < aptEnd && newEnd > aptStart;
-      }
-      return false;
-    });
-
-    if (hasOverlapSamePatient) {
-      return res.status(409).json({
-        success: false,
-        message: "Conflict detected: Patient has another appointment during this time.",
-      });
-    }
-
-    // Then check doctor-specific conflicts (existing behavior)
     if (!isSeeding && hasConflict(
       appointments, 
       appointmentData.date, 
       appointmentData.time, 
       appointmentData.duration || 60, 
-      appointmentData.doctor || ""
+      appointmentData.doctor || "",
+      undefined,
+      appointmentData.patientId
     )) {
       return res.status(409).json({
         success: false,
-        message: "Conflict detected: There is already an appointment scheduled during this time.",
+        message: "Conflict detected: Either the doctor or the patient is already busy during this time.",
       });
     }
 
@@ -149,6 +125,35 @@ export const addAppointment = (req: Request, res: Response<ApiResponse<Appointme
       );
     }
 
+    // LOG INITIAL CREATION
+    const changedBy = (req as any).user?.id || 'admin';
+    const changedByName = (req as any).user?.name || (changedBy === 'admin' ? 'Admin' : changedBy);
+    const emptyState: any = { status: 'none', paymentStatus: 'none', price: 0, balance: 0, totalPaid: 0 };
+    createAppointmentLog(
+      newAppointment.id!, 
+      emptyState, 
+      newAppointment, 
+      changedBy, 
+      changedByName,
+      'update', 
+      newAppointment.totalPaid || 0,
+      newAppointment.notes
+    );
+
+    // If initial payment, also log to dedicated payment logs
+    if (newAppointment.totalPaid && newAppointment.totalPaid > 0) {
+      createPaymentLog(
+        newAppointment.id!,
+        newAppointment.totalPaid,
+        newAppointment.paymentMethod || 'cash',
+        newAppointment.paymentStatus || 'unpaid',
+        changedBy,
+        newAppointment.price || 0, // previous balance was full price
+        newAppointment.balance || 0,
+        changedByName
+      );
+    }
+
     // Payment notification for specific amount if initial payment was made
     if (newAppointment.totalPaid && newAppointment.totalPaid > 0) {
       console.log(`[APPOINTMENT CREATE] Initial payment detected: ${newAppointment.totalPaid}. Triggering notifyPaymentReceived.`);
@@ -188,7 +193,7 @@ export const getAppointments = (
 ) => {
   try {
     const appointments = readData<Appointment>(COLLECTION);
-    const { startDate, endDate, search, doctor, type, status, patientId, parentId, anonymize, includeUnpaid } = req.query as Record<string, string>;
+    const { startDate, endDate, search, doctor, type, status, patientId, parentId, anonymize, includeUnpaid, matchType } = req.query as Record<string, string>;
     
     // return only non-deleted appointments
     let filtered = appointments.filter(a => !a.deleted);
@@ -201,17 +206,12 @@ export const getAppointments = (
 
     const isGlobal = anonymize === 'true';
 
-    // If parentId is provided, get all patients for that parent first
-    if (parentId && !isGlobal) {
-      const patients = readData<Patient>("patients");
-      const familyIds = patients
-        .filter(p => (p.parentId === parentId || p.id === parentId) && !p.deleted)
-        .map(p => p.id)
-        .filter((id): id is string => id !== undefined);
-      
-      filtered = filtered.filter(a => familyIds.includes(a.patientId));
-    } else if (patientId && !isGlobal) {
-      filtered = filtered.filter(a => a.patientId === patientId);
+    // Handle Date range filtering first so it applies to both OR and AND logic
+    if (startDate && startDate !== "") {
+      filtered = filtered.filter(a => (includeUnpaid === 'true' && (a.paymentStatus === 'unpaid' || a.status === 'pending')) || a.date >= startDate);
+    }
+    if (endDate && endDate !== "") {
+      filtered = filtered.filter(a => (includeUnpaid === 'true' && (a.paymentStatus === 'unpaid' || a.status === 'pending')) || a.date <= endDate);
     }
 
     // If search term is provided, prioritize searching (global search)
@@ -222,20 +222,53 @@ export const getAppointments = (
         getAppointmentTypeName(a.type, a.customType).toLowerCase().includes(q) ||
         a.doctor.toLowerCase().includes(q)
       );
-    } else {
-      // Otherwise filter by date range if provided
-      if (startDate && startDate !== "") {
-        filtered = filtered.filter(a => (includeUnpaid === 'true' && (a.paymentStatus === 'unpaid' || a.status === 'pending')) || a.date >= startDate);
+    } else if (matchType === 'or' && (doctor || patientId || parentId)) {
+      // OR logic for availability overlap checks
+      let familyIds: string[] = [];
+      if (parentId && !isGlobal) {
+        const patients = readData<Patient>("patients");
+        familyIds = patients
+          .filter(p => (p.parentId === parentId || p.id === parentId) && !p.deleted)
+          .map(p => p.id)
+          .filter((id): id is string => id !== undefined);
       }
-      if (endDate && endDate !== "") {
-        filtered = filtered.filter(a => (includeUnpaid === 'true' && (a.paymentStatus === 'unpaid' || a.status === 'pending')) || a.date <= endDate);
+
+      filtered = filtered.filter(a => {
+        let match = false;
+        
+        if (doctor && doctor !== 'all') {
+          if (a.doctor === doctor) match = true;
+        }
+        
+        if (!isGlobal) {
+          if (patientId && a.patientId === patientId) match = true;
+          if (parentId && familyIds.includes(a.patientId)) match = true;
+        }
+        
+        return match;
+      });
+    } else {
+      // Standard AND logic (existing behavior)
+      // If parentId is provided, get all patients for that parent first
+      if (parentId && !isGlobal) {
+        const patients = readData<Patient>("patients");
+        const familyIds = patients
+          .filter(p => (p.parentId === parentId || p.id === parentId) && !p.deleted)
+          .map(p => p.id)
+          .filter((id): id is string => id !== undefined);
+        
+        filtered = filtered.filter(a => familyIds.includes(a.patientId));
+      } else if (patientId && !isGlobal) {
+        filtered = filtered.filter(a => a.patientId === patientId);
+      }
+
+      // Apply additional filters
+      if (doctor && doctor !== 'all') {
+        filtered = filtered.filter(a => a.doctor === doctor);
       }
     }
 
-    // Apply additional filters
-    if (doctor && doctor !== 'all') {
-      filtered = filtered.filter(a => a.doctor === doctor);
-    }
+    // Apply common non-OR filters
     if (type && type !== 'all') {
       filtered = filtered.filter(a => a.type === parseInt(type, 10));
     }
@@ -371,11 +404,12 @@ export const updateAppointment = (
         updatedAppointment.time,
         updatedAppointment.duration || 60,
         updatedAppointment.doctor || "",
-        id
+        id,
+        updatedAppointment.patientId
       )) {
         return res.status(409).json({
           success: false,
-          message: "Conflict detected: There is already an appointment scheduled during this time.",
+          message: "Conflict detected: Either the doctor or the patient is already busy during this time.",
         });
       }
     }
@@ -387,16 +421,60 @@ export const updateAppointment = (
       (updatedAppointment as any).balance = Math.max(0, price - discount - (updatedAppointment.totalPaid || 0));
     }
 
-    const oldStatus = appointments[appointmentIndex].status || 'pending';
-    const oldPaymentStatus = appointments[appointmentIndex].paymentStatus || 'unpaid';
+    const oldStatus = oldAppointment.status || 'pending';
+    const oldPaymentStatus = oldAppointment.paymentStatus || 'unpaid';
+
+    // Calculate payment amount early for logging
+    const oldTotalPaidValue = derivedTotalPaid || 0;
+    const newTotalPaidValue = updatedAppointment.totalPaid || 0;
+    const paymentAmount = newTotalPaidValue - oldTotalPaidValue;
+
+    // LOG THE EDIT: Archive previous state as a dedicated appointment log
+    // We determine the change type based on what changed
+    let logChangeType: any = 'update';
+    
+    // Check if schedule actually changed
+    const dateChanged = updates.date && updates.date !== oldAppointment.date;
+    const timeChanged = updates.time && updates.time !== oldAppointment.time;
+    const isRescheduled = dateChanged || timeChanged;
+    const notesChanged = updates.notes !== undefined && updates.notes !== oldAppointment.notes;
+
+    if (paymentAmount > 0) {
+      logChangeType = 'payment';
+    } else if (updates.status && updates.status !== oldStatus) {
+      logChangeType = 'status_change';
+    } else if (isRescheduled) {
+      logChangeType = 'rescheduled';
+    } else if (notesChanged) {
+      logChangeType = 'notes_update';
+    } else if (updates.paymentStatus && updates.paymentStatus !== oldPaymentStatus) {
+      logChangeType = 'payment';
+    }
+
+    const changedBy = (req as any).user?.id || 'admin';
+    const changedByName = (req as any).user?.name || (changedBy === 'admin' ? 'Admin' : changedBy);
+    createAppointmentLog(id, oldAppointment, updatedAppointment, changedBy, changedByName, logChangeType, paymentAmount, updates.notes);
+
+    // If it's a payment, also create a dedicated payment log in its own collection
+    if (paymentAmount > 0 || (updates.paymentStatus && updates.paymentStatus !== oldPaymentStatus)) {
+      const prevBalance = oldAppointment.balance || 0;
+      const newBalance = updatedAppointment.balance || 0;
+      createPaymentLog(
+        id, 
+        paymentAmount > 0 ? paymentAmount : 0, 
+        updatedAppointment.paymentMethod || 'cash', 
+        updatedAppointment.paymentStatus || 'unpaid',
+        changedBy,
+        prevBalance,
+        newBalance,
+        changedByName
+      );
+    }
+
     appointments[appointmentIndex] = updatedAppointment;
     writeData(COLLECTION, appointments);
 
     // PAYMENT RECEIVED NOTIFICATION
-    const oldTotalPaidValue = derivedTotalPaid || 0;
-    const newTotalPaidValue = updatedAppointment.totalPaid || 0;
-    const paymentAmount = newTotalPaidValue - oldTotalPaidValue;
-    
     if (paymentAmount > 0) {
       console.log(`[APPOINTMENT UPDATE] Payment received: ${paymentAmount} (total: ${newTotalPaidValue}). Triggering notifyPaymentReceived.`);
       const appointmentId = updatedAppointment.id || '';
@@ -704,6 +782,18 @@ export const bookPublicAppointment = async (req: Request, res: Response<ApiRespo
     appointments.push(newAppointment);
     writeData(COLLECTION, appointments);
 
+    // LOG INITIAL CREATION
+    createAppointmentLog(
+      newAppointment.id!, 
+      {} as any, 
+      newAppointment, 
+      'patient', // Public bookings are created by the patient
+      undefined, // changedByName
+      'update', // changeType
+      undefined, // amount
+      newAppointment.notes
+    );
+
     // Centralized notification logic
     notifyAppointmentChange(newAppointment, 'public_request');
 
@@ -717,6 +807,50 @@ export const bookPublicAppointment = async (req: Request, res: Response<ApiRespo
     res.status(500).json({
       success: false,
       message: "Error processing your appointment request",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
+
+export const fetchAppointmentLogs = (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    if (!id) {
+      return res.status(400).json({ success: false, message: "Appointment ID is required" });
+    }
+    const logs = getAppointmentLogs(id);
+    res.json({
+      success: true,
+      message: "Appointment logs retrieved successfully",
+      data: logs,
+    });
+  } catch (error) {
+    console.error("[APPOINTMENT LOGS GET] Error fetching logs:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error fetching logs",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
+
+export const fetchPaymentLogs = (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    if (!id) {
+      return res.status(400).json({ success: false, message: "Appointment ID is required" });
+    }
+    const logs = getPaymentLogs(id);
+    res.json({
+      success: true,
+      message: "Payment logs retrieved successfully",
+      data: logs,
+    });
+  } catch (error) {
+    console.error("[PAYMENT LOGS GET] Error fetching logs:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error fetching logs",
       error: error instanceof Error ? error.message : "Unknown error",
     });
   }
