@@ -97,8 +97,9 @@ export const getStatusOptions = () => appointmentStatusList.map((status: any) =>
 /**
  * Normalize status from legacy format to new format
  */
-export const normalizeStatus = (status: string): string => {
-  const normalized = status?.toLowerCase().trim();
+export const normalizeStatus = (status: string | undefined): string => {
+  if (!status) return 'pending';
+  const normalized = status.toLowerCase().trim();
   return LEGACY_STATUS_MAP[normalized] || 'pending';
 };
 

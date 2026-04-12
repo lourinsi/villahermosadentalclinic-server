@@ -19,6 +19,104 @@ import { createPaymentLog, getPaymentLogs } from "../utils/paymentLogs";
 
 const COLLECTION = "appointments";
 
+const cancelOverlappingPendingAppointments = (
+  appointments: Appointment[],
+  newAppointment: Appointment,
+  changedBy: string,
+  changedByName?: string
+) => {
+  const normalizedNewStatus = normalizeStatus(newAppointment.status);
+  if (normalizedNewStatus === "pending" || normalizedNewStatus === "cancelled") {
+    console.log(`[APPOINTMENT OVERLAP] Skipping cancellation check: new appointment status is ${normalizedNewStatus}`);
+    return false;
+  }
+
+  const timeToMinutes = (timeStr: string): number => {
+    if (!timeStr) return 0;
+    const [hours, minutes] = timeStr.split(":").map(Number);
+    return (hours || 0) * 60 + (minutes || 0);
+  };
+
+  const normalizeDoctorName = (name: string) => (name || "").replace(/^Dr\.\s+/i, "").toLowerCase().trim();
+
+  const newStart = timeToMinutes(newAppointment.time);
+  const newEnd = newStart + (Number(newAppointment.duration) || 60);
+  const newDate = newAppointment.date;
+  const newDoctorNorm = normalizeDoctorName(newAppointment.doctor || "");
+
+  console.log(`[APPOINTMENT OVERLAP] Checking for pending overlaps: newApt=${newAppointment.id} date=${newDate} time=${newAppointment.time} duration=${newAppointment.duration} doctor=${newAppointment.doctor} status=${newAppointment.status}`);
+
+  let cancelledCount = 0;
+
+  appointments.forEach((apt) => {
+    if (
+      !apt.deleted &&
+      apt.id !== newAppointment.id &&
+      apt.date === newDate &&
+      normalizeStatus(apt.status) === "pending"
+    ) {
+      const isSamePatient = newAppointment.patientId && apt.patientId === newAppointment.patientId;
+      const aptDoctorNorm = normalizeDoctorName(apt.doctor || "");
+      const isSameDoctor = newDoctorNorm && aptDoctorNorm && newDoctorNorm === aptDoctorNorm;
+
+      if (isSamePatient || isSameDoctor) {
+        const aptStart = timeToMinutes(apt.time);
+        const aptDuration = Number(apt.duration) || 60;
+        const aptEnd = aptStart + aptDuration;
+
+        // Overlap condition: (newStart < aptEnd) && (newEnd > aptStart)
+        if (newStart < aptEnd && newEnd > aptStart) {
+          console.log(`[APPOINTMENT OVERLAP] Auto-cancelling pending appointment ${apt.id} for ${apt.patientName} overlapping with ${newAppointment.status} appointment ${newAppointment.id}`);
+          
+          const oldApt = { ...apt };
+          apt.status = "cancelled";
+          apt.cancellationReason = "Another appointment was scheduled for this time slot";
+          apt.updatedAt = new Date();
+          cancelledCount++;
+
+          // Log the cancellation
+          createAppointmentLog(
+            apt.id!,
+            oldApt,
+            apt,
+            changedBy,
+            changedByName || "System",
+            "status_change",
+            0,
+            `Automatically cancelled due to overlap with a ${newAppointment.status} appointment`
+          );
+
+          // Notify about the cancellation
+          const recipients = resolveRecipients(apt);
+          notifyStatusChange(
+            apt.id!,
+            "status",
+            "pending",
+            "cancelled",
+            recipients,
+            {
+              patientName: apt.patientName,
+              date: apt.date,
+              time: apt.time,
+              type: getAppointmentTypeName(apt.type, apt.customType),
+              doctor: apt.doctor,
+              cancellationReason: apt.cancellationReason,
+            }
+          );
+        }
+      }
+    }
+  });
+
+  if (cancelledCount > 0) {
+    console.log(`[APPOINTMENT OVERLAP] Cancelled ${cancelledCount} pending appointments.`);
+    return true;
+  }
+  
+  console.log(`[APPOINTMENT OVERLAP] No pending appointments found to cancel. Total appointments checked: ${appointments.length}`);
+  return false;
+};
+
 export const addAppointment = (req: Request, res: Response<ApiResponse<Appointment>>) => {
   try {
     const appointments = readData<Appointment>(COLLECTION);
@@ -97,37 +195,43 @@ export const addAppointment = (req: Request, res: Response<ApiResponse<Appointme
     };
 
     console.log("[APPOINTMENT CREATE] New appointment object created:", newAppointment);
+    
+    // Auto-cancel overlapping pending appointments
+    const changedBy = (req as any).user?.id || 'admin';
+    const changedByName = (req as any).user?.name || (changedBy === 'admin' ? 'Admin' : changedBy);
+    cancelOverlappingPendingAppointments(appointments, newAppointment, changedBy, changedByName);
+
     appointments.push(newAppointment);
     writeData(COLLECTION, appointments);
     console.log("[APPOINTMENT CREATE] Appointment saved. Total appointments:", appointments.length);
 
-    // Centralized notification logic
-    notifyAppointmentChange(newAppointment, 'created');
+    if (!isSeeding) {
+      // Centralized notification logic
+      notifyAppointmentChange(newAppointment, 'created');
 
-    const recipients = resolveRecipients(newAppointment);
-    console.log(`[APPOINTMENT CREATE] Final recipients list for payment: ${recipients.join(',')}`);
+      const recipients = resolveRecipients(newAppointment);
+      console.log(`[APPOINTMENT CREATE] Final recipients list for payment: ${recipients.join(',')}`);
 
-    // Payment status notification if not unpaid
-    if (newAppointment.paymentStatus && newAppointment.paymentStatus !== 'unpaid') {
-      notifyStatusChange(
-        newAppointment.id || '',
-        'payment',
-        'unpaid',
-        newAppointment.paymentStatus,
-        recipients,
-        {
-          patientName: newAppointment.patientName,
-          date: newAppointment.date,
-          time: newAppointment.time,
-          type: getAppointmentTypeName(newAppointment.type, newAppointment.customType),
-          doctor: newAppointment.doctor
-        }
-      );
+      // Payment status notification if not unpaid
+      if (newAppointment.paymentStatus && newAppointment.paymentStatus !== 'unpaid') {
+        notifyStatusChange(
+          newAppointment.id || '',
+          'payment',
+          'unpaid',
+          newAppointment.paymentStatus,
+          recipients,
+          {
+            patientName: newAppointment.patientName,
+            date: newAppointment.date,
+            time: newAppointment.time,
+            type: getAppointmentTypeName(newAppointment.type, newAppointment.customType),
+            doctor: newAppointment.doctor
+          }
+        );
+      }
     }
 
     // LOG INITIAL CREATION
-    const changedBy = (req as any).user?.id || 'admin';
-    const changedByName = (req as any).user?.name || (changedBy === 'admin' ? 'Admin' : changedBy);
     const emptyState: any = { status: 'none', paymentStatus: 'none', price: 0, balance: 0, totalPaid: 0 };
     createAppointmentLog(
       newAppointment.id!, 
@@ -155,8 +259,9 @@ export const addAppointment = (req: Request, res: Response<ApiResponse<Appointme
     }
 
     // Payment notification for specific amount if initial payment was made
-    if (newAppointment.totalPaid && newAppointment.totalPaid > 0) {
+    if (!isSeeding && newAppointment.totalPaid && newAppointment.totalPaid > 0) {
       console.log(`[APPOINTMENT CREATE] Initial payment detected: ${newAppointment.totalPaid}. Triggering notifyPaymentReceived.`);
+      const recipients = resolveRecipients(newAppointment);
       notifyPaymentReceived(
         newAppointment.id || '',
         newAppointment.totalPaid,
@@ -391,6 +496,12 @@ export const updateAppointment = (
     console.log("[APPOINTMENT UPDATE] updatedAppointment=", JSON.stringify(updatedAppointment, null, 2));
     console.log("[APPOINTMENT UPDATE] changedFields=", JSON.stringify(changedFields, null, 2));
 
+    const changedBy = (req as any).user?.id || 'admin';
+    const changedByName = (req as any).user?.name || (changedBy === 'admin' ? 'Admin' : changedBy);
+
+    // Auto-cancel overlapping pending appointments
+    cancelOverlappingPendingAppointments(appointments, updatedAppointment, changedBy, changedByName);
+
     // Check for conflicts if date, time, duration, or doctor changed
     if (
       updates.date || 
@@ -451,8 +562,6 @@ export const updateAppointment = (
       logChangeType = 'payment';
     }
 
-    const changedBy = (req as any).user?.id || 'admin';
-    const changedByName = (req as any).user?.name || (changedBy === 'admin' ? 'Admin' : changedBy);
     createAppointmentLog(id, oldAppointment, updatedAppointment, changedBy, changedByName, logChangeType, paymentAmount, updates.notes);
 
     // If it's a payment, also create a dedicated payment log in its own collection

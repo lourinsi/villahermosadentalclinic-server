@@ -354,15 +354,16 @@ export const createStatusChangeNotification = (
     time: string;
     type: string;
     doctor?: string;
+    cancellationReason?: string; // Reason if appointment was cancelled
   },
   amount?: number // Optional amount to include in payment message
 ) => {
   const { oldStatus, newStatus, oldPaymentStatus, newPaymentStatus } = changeDetails;
-  const { patientName, date, time, type, doctor } = appointmentData;
+  const { patientName, date, time, type, doctor, cancellationReason } = appointmentData;
   const docName = formatDoctorName(doctor);
   const doctorWithSuffix = docName ? ` with ${docName}` : "";
 
-  console.log(`[createStatusChangeNotification] START userId=${userId} appointmentId=${appointmentId} oldStatus=${oldStatus} newStatus=${newStatus} oldPaymentStatus=${oldPaymentStatus} newPaymentStatus=${newPaymentStatus} amount=${amount || 'none'}`);
+  console.log(`[createStatusChangeNotification] START userId=${userId} appointmentId=${appointmentId} oldStatus=${oldStatus} newStatus=${newStatus} oldPaymentStatus=${oldPaymentStatus} newPaymentStatus=${newPaymentStatus} amount=${amount || 'none'} cancellationReason=${cancellationReason || 'none'}`);
 
   // Determine title and message based on what changed
   let title = "Appointment Updated";
@@ -382,7 +383,13 @@ export const createStatusChangeNotification = (
 
   if (newStatus && oldStatus !== newStatus) {
     title = "Appointment Status Changed";
-    message = `${subjectText} for ${type} on ${date} is now ${newStatus}.`;
+    
+    // Include cancellation reason if appointment was cancelled
+    if (newStatus === "cancelled" && cancellationReason) {
+      message = `${subjectText} for ${type} on ${date} has been cancelled. Reason: ${cancellationReason}`;
+    } else {
+      message = `${subjectText} for ${type} on ${date} is now ${newStatus}.`;
+    }
     notificationType = "appointment";
     console.log(`[createStatusChangeNotification] Status change detected: ${oldStatus} -> ${newStatus}`);
   } else if (newStatus && oldStatus === newStatus) {
@@ -437,6 +444,7 @@ export const createStatusChangeNotification = (
       appointmentTime: time,
       doctor: docName,
       amount: amount,
+      cancellationReason: cancellationReason,
       changedFields: {
         ...(oldStatus && newStatus && { status: { from: oldStatus, to: newStatus } }),
         ...(oldPaymentStatus && newPaymentStatus && { paymentStatus: { from: oldPaymentStatus, to: newPaymentStatus } }),
@@ -547,6 +555,7 @@ export const notifyStatusChange = (
     time: string;
     type: string;
     doctor?: string;
+    cancellationReason?: string; // Reason if appointment was cancelled
   },
   amount?: number // Optional amount to combine payment receipt with status change
 ) => {

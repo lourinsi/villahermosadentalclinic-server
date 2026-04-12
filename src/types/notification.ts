@@ -20,6 +20,7 @@ export interface Notification {
     amount?: number;
     paymentDate?: string;
     paymentId?: string;
+    cancellationReason?: string; // Reason why appointment was cancelled
     changedFields?: { [key: string]: any };
     isRequest?: boolean;
     isDoctorView?: boolean;

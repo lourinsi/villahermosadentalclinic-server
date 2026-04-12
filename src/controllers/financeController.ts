@@ -10,7 +10,6 @@ import {
   RecentTransaction,
 } from "../types/finance";
 import { readData, writeData } from "../utils/storage";
-import { createNotification, notifyAdmin } from "../utils/notifications";
 
 const RECORDS_COLLECTION = "finance_records";
 const EXPENSES_COLLECTION = "detailed_expenses";
@@ -49,22 +48,9 @@ export const createFinanceRecord = (
     writeData(RECORDS_COLLECTION, financeRecords);
     console.log("[FINANCE CREATE] Finance record saved. Total records:", financeRecords.length);
 
-    if (newRecord.type === "payment" && newRecord.patientId) {
-      // Notify Patient
-      createNotification(
-        newRecord.patientId,
-        "Payment Received",
-        `We have received your payment of ₱${newRecord.amount.toLocaleString()}. Thank you!`,
-        "payment"
-      );
-      
-      // Notify Admin
-      notifyAdmin(
-        "Payment Received",
-        `A payment of ₱${newRecord.amount.toLocaleString()} has been received from patient ${newRecord.patientId}.`,
-        "payment"
-      );
-    }
+    // NOTE: Payment notifications are NOT created here
+    // They should only be created by real admin actions in paymentController when payments are actually processed
+    // The seeder's fake "payment received" messages are AI slop and should not exist
 
     res.status(201).json({
       success: true,

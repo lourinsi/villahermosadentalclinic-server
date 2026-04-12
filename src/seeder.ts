@@ -235,6 +235,10 @@ function getRandomDate(startDate: Date, endDate: Date): Date {
   return new Date(startDate.getTime() + Math.random() * (endDate.getTime() - startDate.getTime()));
 }
 
+function generateRandomTimestamp(startDate: Date, endDate: Date): string {
+  return getRandomDate(startDate, endDate).toISOString();
+}
+
 const toothSections = ["top", "bottom", "left", "right", "center"];
 const toothColors = ["blue", "red"];
 
@@ -316,7 +320,7 @@ function generatePatients(count: number = 25): Omit<Patient, "id" | "createdAt" 
     isPrimary: true,
     dentalCharts: [],
     lastVisit: undefined,
-    username: "Test Patient", // Add username for auth matching
+    username: "test@patient.com", // Match email for consistent auth
   };
   generatedPatients.push(testPatient);
 
@@ -325,7 +329,7 @@ function generatePatients(count: number = 25): Omit<Patient, "id" | "createdAt" 
     const firstName = getRandomElement(firstNames);
     const lastName = getRandomElement(lastNames);
     const email = `${firstName.toLowerCase()}.${lastName.toLowerCase()}${i}@email.com`;
-    const phone = `(${getRandomInt(200, 999)}) ${getRandomInt(200, 999)}-${getRandomInt(1000, 9999)}`;
+    const phone = `09${getRandomInt(10, 99)}${getRandomInt(100, 999)}${getRandomInt(1000, 9999)}`;
     const dateOfBirth = new Date(getRandomInt(1960, 2005), getRandomInt(0, 11), getRandomInt(1, 28));
 
     const hasLastVisit = Math.random() > 0.2;
@@ -349,12 +353,13 @@ function generatePatients(count: number = 25): Omit<Patient, "id" | "createdAt" 
       insurance: getRandomElement(insurances),
       status: getRandomElement(statuses),
       emergencyContact: getRandomElement(firstNames) + " " + getRandomElement(lastNames),
-      emergencyPhone: `(${getRandomInt(200, 999)}) ${getRandomInt(200, 999)}-${getRandomInt(1000, 9999)}`,
+      emergencyPhone: `09${getRandomInt(10, 99)}${getRandomInt(100, 999)}${getRandomInt(1000, 9999)}`,
       allergies: Math.random() > 0.7 ? getRandomElement(["Penicillin", "Latex", "Iodine", "None"]) : "None",
       medicalHistory: getRandomElement(["Diabetes", "Hypertension", "Asthma", "None"]),
       notes: getRandomElement(["VIP patient", "Referred by friend", "Online inquiry", ""]),
       dentalCharts: dentalCharts,
       lastVisit: lastVisitDate,
+      username: email, // Use email as username for consistency
     };
 
     generatedPatients.push(patient);
@@ -379,13 +384,14 @@ function generateDependents(parent: Patient, count: number): Omit<Patient, "id" 
     const lastVisitDate = hasLastVisit ? `${randomVisitDate.getFullYear()}-${(randomVisitDate.getMonth() + 1).toString().padStart(2, '0')}-${randomVisitDate.getDate().toString().padStart(2, '0')}` : undefined;
     
     const dentalCharts = generateDentalCharts(lastVisitDate);
+    const email = `${firstName.toLowerCase()}.${lastName.toLowerCase()}${i}_dep@email.com`;
 
     dependents.push({
       name: `${firstName} ${lastName}`,
       firstName,
       lastName,
-      email: parent.email, // Inherited
-      phone: parent.phone, // Inherited
+      email: parent.email, // Inherited contact
+      phone: parent.phone, // Inherited contact
       parentId: parent.id,
       isPrimary: false,
       relationship,
@@ -398,29 +404,70 @@ function generateDependents(parent: Patient, count: number): Omit<Patient, "id" 
       emergencyContact: parent.name,
       emergencyPhone: parent.phone,
       allergies: Math.random() > 0.8 ? getRandomElement(["Penicillin", "Latex", "Iodine", "None"]) : "None",
-      medicalHistory: "None",
       notes: `Dependent of ${parent.name}`,
       dentalCharts: dentalCharts,
       lastVisit: lastVisitDate,
+      username: email, // Set username for dependents too
     });
   }
   return dependents;
 }
 
-function generateAppointments(patientsList: Patient[], doctorsList: string[], count: number = 60): Omit<Appointment, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] {
-  const generatedAppointments: Omit<Appointment, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] = [];
+function generateAppointments(patientsList: Patient[], doctorsList: string[], count: number = 60): Omit<Appointment, "id" | "deleted" | "deletedAt">[] {
+  const generatedAppointments: Omit<Appointment, "id" | "deleted" | "deletedAt">[] = [];
   const now = new Date();
   const sixMonthsLater = new Date(now.getFullYear(), now.getMonth() + 6, now.getDate());
   const oneYearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+  
+  // For randomizing timestamps: go back 6 months for appointment creation times
+  const createdAtStart = new Date(now.getFullYear(), now.getMonth() - 6, now.getDate());
+  const createdAtEnd = now;
 
-// First, create a scheduled appointment for each patient's lastVisit if they have one
+  // Duration options: only 30, 60, 90, 120 (no 45!)
+  const VALID_DURATIONS = [30, 60, 90, 120];
+
+  // Helper: Get duration for appointment type (updated to use valid durations)
+  const getDurationForType = (typeIndex: number): number => {
+    const durations: Record<number, number> = {
+      0: 30,  // Routine Cleaning
+      1: 30,  // Checkup
+      2: 60,  // Filling
+      3: 90,  // Root Canal
+      4: 60,  // Extraction
+      5: 120, // Whitening
+      6: 30,  // Other
+    };
+    return durations[typeIndex] || 30;
+  };
+
+  // Helper: Check if two time slots overlap
+  const slotsOverlap = (
+    start1: Date,
+    end1: Date,
+    start2: Date,
+    end2: Date
+  ): boolean => {
+    return start1 < end2 && end1 > start2;
+  };
+
+  // Helper: Get appointment end time
+  const getAppointmentEnd = (apt: Omit<Appointment, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">): Date => {
+    const [hours, minutes] = apt.time.split(':').map(Number);
+    const start = new Date(apt.date);
+    start.setHours(hours, minutes, 0, 0);
+    return new Date(start.getTime() + (apt.duration || 30) * 60000);
+  };
+
+  // First, create past appointments (completed/scheduled) for each patient's lastVisit
   patientsList.forEach(patient => {
     if (patient.lastVisit) {
-      // compute a realistic price and mark as paid for past scheduled visits
       const pastPriceOptions = [1500, 500, 1200, 5000, 1500, 3000];
       const appointmentTypeIndex = getRandomInt(0, APPOINTMENT_TYPES.length - 2);
       const price = pastPriceOptions[appointmentTypeIndex] || 1000;
-      const duration = appointmentTypeIndex === 0 ? 30 : appointmentTypeIndex === 1 ? 30 : appointmentTypeIndex === 2 ? 45 : appointmentTypeIndex === 3 ? 60 : appointmentTypeIndex === 4 ? 45 : 60;
+      const duration = getDurationForType(appointmentTypeIndex);
+      
+      // Randomize createdAt/updatedAt within 6 months ago to now
+      const appointmentCreatedAt = new Date(generateRandomTimestamp(createdAtStart, createdAtEnd));
       
       generatedAppointments.push({
         patientId: patient.id || "",
@@ -431,130 +478,197 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
         duration: duration,
         doctor: doctorsList.length > 0 ? getRandomElement(doctorsList) : "",
         price: price,
-        status: APPOINTMENT_STATUSES.find(s => s.value === "scheduled")?.value || "scheduled",
+        status: APPOINTMENT_STATUSES.find(s => s.value === "completed")?.value || "completed",
         paymentStatus: "paid",
         balance: 0,
         totalPaid: price,
         notes: "Routine visit completed.",
+        createdAt: appointmentCreatedAt,
+        updatedAt: appointmentCreatedAt,
       });
     }
   });
 
-  // Add specific appointments for test patient
+  // Add specific test patient appointments with realistic scenario
   const testPatient = patientsList.find(p => p.email === "test@patient.com");
   const testDoctorName = "Dr. Test Doctor";
   
   if (testPatient) {
-    // 2 in Cart (pending, unpaid) - KEY 2
-    for (let i = 0; i < 2; i++) {
-        const date = new Date(now);
-        date.setDate(now.getDate() + getRandomInt(1, 14));
-        generatedAppointments.push({
-            patientId: testPatient.id || "",
-            patientName: testPatient.name,
-            date: date.toISOString().split("T")[0],
-            time: "09:00",
-            type: getRandomInt(0, 5),
-            doctor: testDoctorName,
-            price: 1500,
-            status: APPOINTMENT_STATUSES.find(s => s.value === "pending")?.value || "pending",
-            paymentStatus: "unpaid",
-            balance: 1500,
-            totalPaid: 0,
-            notes: "Pending in cart."
-        });
-    }
-    // 1 Reserved (half-paid) - KEY 3
+    // Scenario: Build appointments showing different states and a conflict scenario
+    
+    // BASE APPOINTMENT: Scheduled on April 15, 2026 at 10:00 (60 mins) - WILL BE KEPT
+    const baseAptCreatedAt = new Date(generateRandomTimestamp(createdAtStart, createdAtEnd));
     generatedAppointments.push({
-        patientId: testPatient.id || "",
-        patientName: testPatient.name,
-        date: new Date(now.getTime() + 86400000 * 3).toISOString().split("T")[0],
-        time: "11:00",
+      patientId: testPatient.id || "",
+      patientName: testPatient.name,
+      date: "2026-04-15",
+      time: "10:00",
+      type: 1,
+      duration: 60, // 10:00 - 11:00
+      doctor: testDoctorName,
+      price: 1500,
+      status: APPOINTMENT_STATUSES.find(s => s.value === "scheduled")?.value || "scheduled",
+      paymentStatus: "paid",
+      balance: 0,
+      totalPaid: 1500,
+      notes: "Initial scheduled appointment - fully paid.",
+      createdAt: baseAptCreatedAt,
+      updatedAt: baseAptCreatedAt,
+    });
+
+    // CONFLICT APPOINTMENT: Same date/time, different patient - overlaps with above
+    // This will trigger auto-cancellation of pending overlaps
+    const conflictAptCreatedAt = new Date(generateRandomTimestamp(createdAtStart, createdAtEnd));
+    const otherPatient = patientsList.find(p => p.email !== "test@patient.com" && p.email);
+    if (otherPatient) {
+      generatedAppointments.push({
+        patientId: otherPatient.id || "",
+        patientName: `${otherPatient.firstName} ${otherPatient.lastName}`,
+        date: "2026-04-15",
+        time: "10:30", // Overlaps with test patient's 10:00-11:00
         type: 0,
-        doctor: testDoctorName,
-        price: 1500,
-        status: APPOINTMENT_STATUSES.find(s => s.value === "reserved")?.value || "reserved",
-        paymentStatus: "half-paid",
-        balance: 1000,
-        totalPaid: 500,
-        notes: "Reserved slot with partial payment."
-    });
-    // 1 Pending (Clinic payment) - KEY 2
-    generatedAppointments.push({
-        patientId: testPatient.id || "",
-        patientName: testPatient.name,
-        date: new Date(now.getTime() + 86400000 * 4).toISOString().split("T")[0],
-        time: "13:30",
-        type: 3,
-        doctor: testDoctorName,
-        price: 5000,
-        status: APPOINTMENT_STATUSES.find(s => s.value === "pending")?.value || "pending",
-        paymentStatus: "unpaid",
-        balance: 5000,
-        totalPaid: 0,
-        notes: "Pay at clinic request."
-    });
-    // 2 Scheduled (paid) - KEY 1
-    generatedAppointments.push({
-        patientId: testPatient.id || "",
-        patientName: testPatient.name,
-        date: new Date(now.getTime() + 86400000 * 2).toISOString().split("T")[0],
-        time: "10:30",
-        type: 1,
+        duration: 60, // 10:30 - 11:30
         doctor: testDoctorName,
         price: 500,
         status: APPOINTMENT_STATUSES.find(s => s.value === "scheduled")?.value || "scheduled",
         paymentStatus: "paid",
         balance: 0,
         totalPaid: 500,
-        notes: "Scheduled and paid."
-    });
+        notes: "Booking that will be kept (scheduled first).",
+        createdAt: conflictAptCreatedAt,
+        updatedAt: conflictAptCreatedAt,
+      });
+    }
+
+    // PENDING APPOINTMENT: Same slot, pending status - will be cancelled due to conflict above
+    const pendingAptCreatedAt = new Date(generateRandomTimestamp(createdAtStart, createdAtEnd));
     generatedAppointments.push({
-        patientId: testPatient.id || "",
-        patientName: testPatient.name,
-        date: new Date(now.getTime() + 86400000 * 5).toISOString().split("T")[0],
-        time: "14:00",
-        type: 2,
-        doctor: testDoctorName,
-        price: 1200,
-        status: APPOINTMENT_STATUSES.find(s => s.value === "scheduled")?.value || "scheduled",
-        paymentStatus: "paid",
-        balance: 0,
-        totalPaid: 1200,
-        notes: "Scheduled and fully paid."
+      patientId: testPatient.id || "",
+      patientName: testPatient.name,
+      date: "2026-04-15",
+      time: "10:15", // Overlaps with test patient's 10:00-11:00
+      type: 2,
+      duration: 30, // 10:15 - 10:45
+      doctor: testDoctorName,
+      price: 1200,
+      status: APPOINTMENT_STATUSES.find(s => s.value === "pending")?.value || "pending",
+      paymentStatus: "unpaid",
+      balance: 1200,
+      totalPaid: 0,
+      cancellationReason: "Another appointment was scheduled for this time slot",
+      notes: "Pending appointment that overlaps - will be auto-cancelled.",
+      createdAt: pendingAptCreatedAt,
+      updatedAt: pendingAptCreatedAt,
+    });
+
+    // Additional test appointments showing various states
+    // Reserved (half-paid)
+    const reservedAptCreatedAt = new Date(generateRandomTimestamp(createdAtStart, createdAtEnd));
+    generatedAppointments.push({
+      patientId: testPatient.id || "",
+      patientName: testPatient.name,
+      date: "2026-04-20",
+      time: "14:00",
+      type: 0,
+      duration: 30,
+      doctor: testDoctorName,
+      price: 1500,
+      status: APPOINTMENT_STATUSES.find(s => s.value === "reserved")?.value || "reserved",
+      paymentStatus: "half-paid",
+      balance: 1000,
+      totalPaid: 500,
+      notes: "Reserved slot with partial payment.",
+      createdAt: reservedAptCreatedAt,
+      updatedAt: reservedAptCreatedAt,
+    });
+
+    // Pending (pending payment)
+    const pendingPaymentAptCreatedAt = new Date(generateRandomTimestamp(createdAtStart, createdAtEnd));
+    generatedAppointments.push({
+      patientId: testPatient.id || "",
+      patientName: testPatient.name,
+      date: "2026-04-22",
+      time: "09:00",
+      type: 3,
+      duration: 90,
+      doctor: testDoctorName,
+      price: 5000,
+      status: APPOINTMENT_STATUSES.find(s => s.value === "pending")?.value || "pending",
+      paymentStatus: "unpaid",
+      balance: 5000,
+      totalPaid: 0,
+      notes: "Pending appointment awaiting payment decision.",
+      createdAt: pendingPaymentAptCreatedAt,
+      updatedAt: pendingPaymentAptCreatedAt,
+    });
+
+    // Scheduled (fully paid)
+    const scheduledAptCreatedAt = new Date(generateRandomTimestamp(createdAtStart, createdAtEnd));
+    generatedAppointments.push({
+      patientId: testPatient.id || "",
+      patientName: testPatient.name,
+      date: "2026-04-25",
+      time: "11:30",
+      type: 1,
+      duration: 30,
+      doctor: testDoctorName,
+      price: 500,
+      status: APPOINTMENT_STATUSES.find(s => s.value === "scheduled")?.value || "scheduled",
+      paymentStatus: "paid",
+      balance: 0,
+      totalPaid: 500,
+      notes: "Scheduled and fully paid.",
+      createdAt: scheduledAptCreatedAt,
+      updatedAt: scheduledAptCreatedAt,
     });
   }
 
-  // Then generate some random future/mixed appointments
+  // Generate remaining random appointments
   const remainingCount = Math.max(0, count - generatedAppointments.length);
+  
+  // Track doctor schedules to avoid random conflicts
+  const doctorSchedule: Record<string, Array<{ date: string; start: Date; end: Date }>> = {};
+  
+  // Initialize doctor schedules from already-generated appointments
+  generatedAppointments.forEach(apt => {
+    if (!doctorSchedule[apt.doctor]) {
+      doctorSchedule[apt.doctor] = [];
+    }
+    const [hours, minutes] = apt.time.split(':').map(Number);
+    const start = new Date(apt.date);
+    start.setHours(hours, minutes, 0, 0);
+    const end = new Date(start.getTime() + (apt.duration || 30) * 60000);
+    
+    if (apt.status !== "cancelled" && apt.status !== "pending") {
+      doctorSchedule[apt.doctor].push({ date: apt.date, start, end });
+    }
+  });
+
   for (let i = 0; i < remainingCount; i++) {
     const patient = getRandomElement(patientsList);
-    // 20% chance of an additional past appointment
     const isPast = Math.random() > 0.8;
     const appointmentDate = isPast ? getRandomDate(oneYearAgo, now) : getRandomDate(now, sixMonthsLater);
     const hour = getRandomInt(8, 17);
     const minute = getRandomElement([0, 30]);
     const appointmentTypeIndex = getRandomInt(0, APPOINTMENT_TYPES.length - 1);
-    // Only set customType if type is 6 (Other/Custom)
     const customType = appointmentTypeIndex === 6 ? "Custom user-defined procedure" : undefined;
-    const duration = appointmentTypeIndex === 0 ? 30 : appointmentTypeIndex === 1 ? 30 : appointmentTypeIndex === 2 ? 45 : appointmentTypeIndex === 3 ? 60 : appointmentTypeIndex === 4 ? 45 : appointmentTypeIndex === 5 ? 60 : 30;
-    
-    // Choose status from appointment status values randomly
-    const statusValues = ["scheduled", "pending", "reserved", "cancelled", "completed"];
-    let statusValue: string = isPast ? "scheduled" : getRandomElement(statusValues);
-    let paymentStatus: PaymentStatus = "unpaid";
+    const duration = getDurationForType(appointmentTypeIndex);
 
-    if (isPast && statusValue === "scheduled") {
+    // Smart status assignment
+    let statusValue: string;
+    if (isPast) {
+      statusValue = Math.random() > 0.1 ? "completed" : "scheduled";
+    } else {
+      const statusOptions = ["scheduled", "reserved", "pending"];
+      statusValue = getRandomElement(statusOptions);
+    }
+
+    let paymentStatus: PaymentStatus = "unpaid";
+    if (isPast && statusValue === "completed") {
       paymentStatus = "paid";
     } else if (statusValue === "reserved") {
-      // reserved == partial payment
       paymentStatus = "half-paid";
-    } else if (statusValue === "pending") {
-      paymentStatus = "unpaid";
-    } else if (statusValue === "cancelled") {
-      paymentStatus = "unpaid";
     } else if (statusValue === "scheduled" && !isPast) {
-      // future scheduled appointments randomly paid or unpaid
       paymentStatus = Math.random() > 0.5 ? "paid" : "unpaid";
     }
 
@@ -562,18 +676,39 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
     let totalPaid = 0;
     if (paymentStatus === "paid") totalPaid = price;
     else if (paymentStatus === "half-paid") totalPaid = Math.floor(price / 2);
-    
-    const balance = price - totalPaid;
 
-    const appointment: Omit<Appointment, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt"> = {
+    const balance = price - totalPaid;
+    const doctor = doctorsList.length > 0 ? getRandomElement(doctorsList) : "";
+    const dateStr = `${appointmentDate.getFullYear()}-${(appointmentDate.getMonth() + 1).toString().padStart(2, '0')}-${appointmentDate.getDate().toString().padStart(2, '0')}`;
+    const timeStr = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+
+    // Check for conflicts with doctor schedule
+    const [hours, mins] = timeStr.split(':').map(Number);
+    const slotStart = new Date(dateStr);
+    slotStart.setHours(hours, mins, 0, 0);
+    const slotEnd = new Date(slotStart.getTime() + duration * 60000);
+
+    let hasConflict = false;
+    if (doctorSchedule[doctor]) {
+      hasConflict = doctorSchedule[doctor].some(scheduled => 
+        scheduled.date === dateStr && slotsOverlap(slotStart, slotEnd, scheduled.start, scheduled.end)
+      );
+    }
+
+    if (hasConflict && statusValue !== "pending") {
+      // Skip this appointment to avoid conflict
+      continue;
+    }
+
+    const appointment: Omit<Appointment, "id" | "deleted" | "deletedAt"> = {
       patientId: patient.id || "",
       patientName: `${patient.firstName} ${patient.lastName}`,
-      date: `${appointmentDate.getFullYear()}-${(appointmentDate.getMonth() + 1).toString().padStart(2, '0')}-${appointmentDate.getDate().toString().padStart(2, '0')}`,
-      time: `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`,
+      date: dateStr,
+      time: timeStr,
       type: appointmentTypeIndex,
       customType: customType,
       duration: duration,
-      doctor: doctorsList.length > 0 ? getRandomElement(doctorsList) : "",
+      doctor: doctor,
       price: price,
       status: statusValue,
       paymentStatus: paymentStatus,
@@ -583,10 +718,25 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
         "Routine cleaning and checkup",
         "Follow-up from previous visit",
         "New patient evaluation",
-        "Emergency appointment",
         "Crown placement",
+        "Teeth whitening session",
+        "Cavity treatment",
       ]),
+      createdAt: new Date(generateRandomTimestamp(createdAtStart, createdAtEnd)),
+      updatedAt: new Date(generateRandomTimestamp(createdAtStart, createdAtEnd)),
     };
+
+    // Track non-cancelled appointments in doctor schedule
+    if (statusValue !== "cancelled" && statusValue !== "pending") {
+      if (!doctorSchedule[doctor]) {
+        doctorSchedule[doctor] = [];
+      }
+      doctorSchedule[doctor].push({
+        date: dateStr,
+        start: slotStart,
+        end: slotEnd
+      });
+    }
 
     generatedAppointments.push(appointment);
   }
@@ -594,293 +744,184 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
   return generatedAppointments;
 }
 
-function generateFinanceRecords(patientsList: Patient[], count: number = 80): Omit<FinanceRecord, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] {
-  const records: Omit<FinanceRecord, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt">[] = [];
-  const now = new Date();
-  const twoYearsAgo = new Date(now.getFullYear() - 2, now.getMonth(), now.getDate());
+function generateFinanceRecords(appointments: Appointment[]): Omit<FinanceRecord, "id" | "deleted" | "deletedAt">[] {
+  const records: Omit<FinanceRecord, "id" | "deleted" | "deletedAt">[] = [];
+  
+  appointments.forEach(apt => {
+    // Only create records for appointments with valid prices
+    const price = apt.price || 0;
+    if (price <= 0) return; // Skip if no price
+    
+    // For appointments with payments, use their createdAt/updatedAt
+    // For appointments without payments, use their createdAt/updatedAt for charges
+    const aptCreatedAt = apt.createdAt ? new Date(apt.createdAt) : new Date();
+    const aptUpdatedAt = apt.updatedAt ? new Date(apt.updatedAt) : aptCreatedAt;
+    
+    // 1. Create a charge for the procedure
+    const procedureName = getAppointmentTypeName(apt.type, apt.customType);
+    records.push({
+      patientId: apt.patientId,
+      type: "charge",
+      amount: price,
+      date: apt.date,
+      description: `${procedureName} charge`,
+      createdAt: aptCreatedAt,
+      updatedAt: aptUpdatedAt,
+    });
 
-  for (let i = 0; i < count; i++) {
-    const patient = getRandomElement(patientsList);
-    const date = getRandomDate(twoYearsAgo, now);
-    const isPayment = Math.random() > 0.4; // ~60% charges, 40% payments
-    const amount = parseFloat((Math.random() * (isPayment ? 200 : 800) + 20).toFixed(2));
-    const record: Omit<FinanceRecord, "id" | "createdAt" | "updatedAt" | "deleted" | "deletedAt"> = {
-      patientId: patient.id || "",
-      type: isPayment ? "payment" : "charge",
-      amount: amount,
-      date: date.toISOString().split("T")[0],
-      description: isPayment ? "Payment received" : getRandomElement(["Procedure charge", "Treatment fee", "Supply charge"]),
-    };
-
-    records.push(record);
-  }
+    // 2. If any amount was paid, create a payment record at the SAME TIME as the appointment
+    // (both happen when admin makes/updates the appointment with payment)
+    if (apt.totalPaid && apt.totalPaid > 0) {
+      records.push({
+        patientId: apt.patientId,
+        type: "payment",
+        amount: apt.totalPaid,
+        date: apt.date,
+        description: `Payment for ${procedureName}`,
+        createdAt: aptCreatedAt,
+        updatedAt: aptUpdatedAt,
+      });
+    }
+  });
 
   return records;
 }
 
-function generateNotifications(patients: Patient[], staff: Staff[], appointments: Appointment[]): any[] {
-  const notifications: any[] = [];
+function generateNotifications(patients: Patient[], staff: Staff[], appointments: Appointment[]): Omit<Notification, "id">[] {
+  const notifications: Omit<Notification, "id">[] = [];
   
-  // 1. Literal Admin and Management staff notifications
-  // Only the literal "admin" user should receive cross-doctor/admin notifications.
-  const adminUserIds = new Set<string>(["admin"]);
-
-  // Add some general system notifications for admins
-  adminUserIds.forEach(adminId => {
-    notifications.push({
-      userId: adminId,
-      title: "Low Stock Alert",
-      message: 'Item "Dental Anesthetic (Lidocaine)" is low on stock (45 vials remaining).',
-      type: "system" as NotificationType,
-      isRead: false,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      metadata: {
-        alertType: "inventory",
-        itemName: "Dental Anesthetic (Lidocaine)",
-        quantity: 45
-      }
-    });
-
-    notifications.push({
-      userId: adminId,
-      title: "Payment Reconciliation",
-      message: "Multiple payments are pending reconciliation for the current month.",
-      type: "payment" as NotificationType,
-      isRead: false,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      metadata: {
-        alertType: "payment",
-        status: "pending_reconciliation"
-      }
-    });
-  });
-
-  // 2. HYBRID APPROACH: Map appointments to notifications for relevant parties
-  // For significant status changes (scheduled, completed, cancelled), create NEW notifications
-  // For initial requests (pending, reserved), use updateOrCreate approach
-  const recentAppointments = appointments.filter(a => a.status !== "pending").slice(-15);
+  const adminUserId = "admin";
   
-  recentAppointments.forEach(apt => {
+  // 1. APPOINTMENT NOTIFICATIONS
+  const appointmentNotifications = appointments
+    .filter(apt => ["scheduled", "completed"].includes(apt.status as string))
+    .slice(0, Math.ceil(appointments.length * 0.4)); // ~40% of appointments
+  
+  appointmentNotifications.forEach(apt => {
     const serviceName = getAppointmentTypeName(apt.type, apt.customType);
-    const aptStatus = (apt.status as string);
-    const isRequest = ["pending", "reserved"].includes(aptStatus || "");
-    const assignedDoctor = staff.find(s => s.name === apt.doctor);
-
-    const appointmentData = {
-      patientName: apt.patientName,
-      date: apt.date,
-      time: apt.time,
-      type: serviceName,
-      doctor: apt.doctor || "Dr. Unknown"
-    };
-
-    const getIsoDate = (date: any) => {
-      if (!date) return new Date().toISOString();
-      try {
-        return new Date(date).toISOString();
-      } catch (e) {
-        return new Date().toISOString();
-      }
-    };
-
-    // HYBRID: For significant statuses, create NEW notifications
-    if (["scheduled", "completed", "cancelled"].includes(aptStatus)) {
-      // Patient notification
-      if (apt.patientId) {
-        let patientMessage = "";
-        if (aptStatus === "scheduled") {
-          patientMessage = `Your appointment for ${serviceName} on ${apt.date} at ${apt.time} with ${apt.doctor} has been confirmed.`;
-        } else if (aptStatus === "completed") {
-          patientMessage = `Your appointment for ${serviceName} on ${apt.date} has been completed. Thank you for visiting!`;
-        } else if (aptStatus === "cancelled") {
-          patientMessage = `Your appointment for ${serviceName} on ${apt.date} has been cancelled.`;
+    const isCompleted = apt.status === "completed";
+    // Use appointment's updatedAt for notification timestamp (when it was last updated/recorded)
+    // Ensure we have a valid timestamp - use updatedAt, then createdAt, then generate one
+    let notificationCreatedAt: string;
+    if (apt.updatedAt instanceof Date) {
+      notificationCreatedAt = apt.updatedAt.toISOString();
+    } else if (typeof apt.updatedAt === 'string') {
+      notificationCreatedAt = apt.updatedAt;
+    } else if (apt.createdAt instanceof Date) {
+      notificationCreatedAt = apt.createdAt.toISOString();
+    } else if (typeof apt.createdAt === 'string') {
+      notificationCreatedAt = apt.createdAt;
+    } else {
+      // Fallback: generate a random timestamp from 6 months ago
+      const now = new Date();
+      const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 6, now.getDate());
+      notificationCreatedAt = generateRandomTimestamp(sixMonthsAgo, now);
+    }
+    
+    // Patient notification
+    if (apt.patientId) {
+      notifications.push({
+        userId: apt.patientId,
+        title: isCompleted ? "Appointment Completed" : "Appointment Scheduled",
+        message: isCompleted
+          ? `Your ${serviceName} appointment with ${apt.doctor} on ${apt.date} at ${apt.time} has been completed.`
+          : `Your ${serviceName} appointment with ${apt.doctor} on ${apt.date} at ${apt.time} has been confirmed.`,
+        type: "appointment" as NotificationType,
+        isRead: Math.random() > 0.5,
+        createdAt: notificationCreatedAt,
+        metadata: {
+          appointmentId: apt.id,
+          patientName: apt.patientName,
+          appointmentDate: apt.date,
+          appointmentTime: apt.time,
+          doctor: apt.doctor
         }
-
-        notifications.push({
-          userId: apt.patientId,
-          title: `Appointment ${aptStatus === "completed" ? "Completed" : aptStatus === "scheduled" ? "Confirmed" : "Cancelled"}`,
-          message: patientMessage,
-          type: "appointment" as NotificationType,
-          isRead: Math.random() > 0.3,
-          createdAt: getIsoDate(apt.createdAt),
-          updatedAt: getIsoDate(apt.updatedAt),
-          metadata: {
-            appointmentId: apt.id,
-            currentStatus: aptStatus,
-            patientName: apt.patientName,
-            appointmentDate: apt.date,
-            appointmentTime: apt.time,
-            appointmentType: serviceName,
-            doctorName: apt.doctor,
-            isRequest: isRequest,
-            isPatientView: true,
-            changedFields: {
-              status: { from: "pending", to: aptStatus }
-            }
-          }
-        });
-      }
-
-      // Doctor notification
-      if (assignedDoctor && assignedDoctor.id) {
-        let doctorMessage = "";
-        if (aptStatus === "scheduled") {
-          doctorMessage = `Appointment with ${apt.patientName} for ${serviceName} on ${apt.date} at ${apt.time} is confirmed.`;
-        } else if (aptStatus === "completed") {
-          doctorMessage = `Appointment with ${apt.patientName} for ${serviceName} on ${apt.date} has been completed.`;
-        } else if (aptStatus === "cancelled") {
-          doctorMessage = `Appointment with ${apt.patientName} for ${serviceName} on ${apt.date} has been cancelled.`;
-        }
-
-        notifications.push({
-          userId: assignedDoctor.id,
-          title: `Appointment ${aptStatus === "completed" ? "Completed" : aptStatus === "scheduled" ? "Confirmed" : "Cancelled"}`,
-          message: doctorMessage,
-          type: "appointment" as NotificationType,
-          isRead: Math.random() > 0.3,
-          createdAt: getIsoDate(apt.createdAt),
-          updatedAt: getIsoDate(apt.updatedAt),
-          metadata: {
-            appointmentId: apt.id,
-            currentStatus: aptStatus,
-            patientName: apt.patientName,
-            patientId: apt.patientId,
-            appointmentDate: apt.date,
-            appointmentTime: apt.time,
-            appointmentType: serviceName,
-            price: apt.price,
-            paymentStatus: apt.paymentStatus,
-            isRequest: isRequest,
-            isDoctorView: true,
-            changedFields: {
-              status: { from: "pending", to: aptStatus }
-            }
-          }
-        });
-      }
-
-      // Admin notification
-      adminUserIds.forEach(adminId => {
-        if (assignedDoctor && assignedDoctor.id === adminId) return;
-
-        let adminMessage = "";
-        if (aptStatus === "scheduled") {
-          adminMessage = `${apt.doctor || "A doctor"} has confirmed the appointment for ${apt.patientName} (${serviceName}) on ${apt.date} at ${apt.time}.`;
-        } else if (aptStatus === "completed") {
-          adminMessage = `Appointment for ${apt.patientName} (${serviceName}) with ${apt.doctor || "a doctor"} on ${apt.date} has been completed.`;
-        } else if (aptStatus === "cancelled") {
-          adminMessage = `Appointment for ${apt.patientName} (${serviceName}) with ${apt.doctor || "a doctor"} on ${apt.date} has been cancelled.`;
-        }
-
-        notifications.push({
-          userId: adminId,
-          title: `Appointment ${aptStatus === "completed" ? "Completed" : aptStatus === "scheduled" ? "Confirmed" : "Cancelled"}`,
-          message: adminMessage,
-          type: "appointment" as NotificationType,
-          isRead: Math.random() > 0.3,
-          createdAt: getIsoDate(apt.createdAt),
-          updatedAt: getIsoDate(apt.updatedAt),
-          metadata: {
-            appointmentId: apt.id,
-            currentStatus: aptStatus,
-            patientName: apt.patientName,
-            patientId: apt.patientId,
-            appointmentDate: apt.date,
-            appointmentTime: apt.time,
-            appointmentType: serviceName,
-            doctorName: apt.doctor,
-            price: apt.price,
-            paymentStatus: apt.paymentStatus,
-            isRequest: isRequest,
-            isAdminView: true,
-            changedFields: {
-              status: { from: "pending", to: aptStatus }
-            }
-          }
-        });
       });
     }
-    // HYBRID: For reserved/payment status, create payment notifications
-    else if (aptStatus === "reserved" && apt.paymentStatus === "half-paid") {
-      // Create payment notification for patient
-      if (apt.patientId) {
-        notifications.push({
-          userId: apt.patientId,
-          title: "Payment Status Updated",
-          message: `Payment received for your ${serviceName} appointment. Status: Half-Paid (${apt.totalPaid}/${apt.price})`,
-          type: "payment" as NotificationType,
-          isRead: Math.random() > 0.3,
-          createdAt: getIsoDate(apt.createdAt),
-          updatedAt: getIsoDate(apt.updatedAt),
-          metadata: {
-            appointmentId: apt.id,
-            currentStatus: aptStatus,
-            patientName: apt.patientName,
-            patientId: apt.patientId,
-            appointmentDate: apt.date,
-            appointmentTime: apt.time,
-            appointmentType: serviceName,
-            price: apt.price,
-            totalPaid: apt.totalPaid,
-            balance: apt.balance,
-            isRequest: true,
-            isPatientView: true,
-            changedFields: {
-              paymentStatus: { from: "unpaid", to: "half-paid" }
-            }
-          }
-        });
-      }
-
-      // Create payment notification for admin
-      adminUserIds.forEach(adminId => {
-        notifications.push({
-          userId: adminId,
-          title: "Payment Received",
-          message: `Partial payment received from ${apt.patientName} for ${serviceName} appointment on ${apt.date}. Amount: ${apt.totalPaid}/${apt.price}`,
-          type: "payment" as NotificationType,
-          isRead: Math.random() > 0.3,
-          createdAt: getIsoDate(apt.createdAt),
-          updatedAt: getIsoDate(apt.updatedAt),
-          metadata: {
-            appointmentId: apt.id,
-            currentStatus: aptStatus,
-            patientName: apt.patientName,
-            patientId: apt.patientId,
-            appointmentDate: apt.date,
-            appointmentTime: apt.time,
-            appointmentType: serviceName,
-            doctorName: apt.doctor,
-            price: apt.price,
-            totalPaid: apt.totalPaid,
-            balance: apt.balance,
-            paymentStatus: apt.paymentStatus,
-            isRequest: true,
-            isAdminView: true,
-            changedFields: {
-              paymentStatus: { from: "unpaid", to: "half-paid" }
-            }
-          }
-        });
-      });
-    }
-  });
-  
-  // 3. Welcome notifications for patients (system notifications)
-  patients.slice(0, 10).forEach(p => {
+    
+    // Admin notification
     notifications.push({
-      userId: p.id || "",
-      title: "Welcome to Villahermosa Dental Clinic",
-      message: "Thank you for joining our clinic. We look forward to serving you!",
-      type: "system" as NotificationType,
+      userId: adminUserId,
+      title: isCompleted ? "Appointment Completed" : "Appointment Scheduled",
+      message: isCompleted
+        ? `${apt.patientName}'s ${serviceName} appointment with ${apt.doctor} on ${apt.date} at ${apt.time} is now completed.`
+        : `${apt.patientName}'s ${serviceName} appointment with ${apt.doctor} on ${apt.date} at ${apt.time} has been scheduled.`,
+      type: "appointment" as NotificationType,
       isRead: true,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: notificationCreatedAt,
+      metadata: {
+        appointmentId: apt.id,
+        patientName: apt.patientName,
+        appointmentDate: apt.date,
+        appointmentTime: apt.time,
+        doctor: apt.doctor
+      }
     });
   });
+
+  // 2. PAYMENT NOTIFICATIONS
+  // For every appointment that has a payment (totalPaid > 0), create payment notifications
+  // Payment notifications happen at the SAME TIME as the appointment was made/updated with the payment
+  const appointmentsWithPayments = appointments.filter(apt => apt.totalPaid && apt.totalPaid > 0);
   
+  appointmentsWithPayments.forEach(apt => {
+    const serviceName = getAppointmentTypeName(apt.type, apt.customType);
+    const amountPaid = apt.totalPaid || 0;
+    // Payment notification uses updatedAt (when payment was recorded with the appointment)
+    // or createdAt if updatedAt doesn't exist
+    let paymentNotificationCreatedAt: string;
+    if (apt.updatedAt instanceof Date) {
+      paymentNotificationCreatedAt = apt.updatedAt.toISOString();
+    } else if (typeof apt.updatedAt === 'string') {
+      paymentNotificationCreatedAt = apt.updatedAt;
+    } else if (apt.createdAt instanceof Date) {
+      paymentNotificationCreatedAt = apt.createdAt.toISOString();
+    } else if (typeof apt.createdAt === 'string') {
+      paymentNotificationCreatedAt = apt.createdAt;
+    } else {
+      // Fallback: generate a random timestamp from 6 months ago
+      const now = new Date();
+      const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 6, now.getDate());
+      paymentNotificationCreatedAt = generateRandomTimestamp(sixMonthsAgo, now);
+    }
+    
+    // Patient notification (sees their own payment)
+    if (apt.patientId) {
+      notifications.push({
+        userId: apt.patientId,
+        title: "Payment Recorded",
+        message: `A payment of ₱${amountPaid.toLocaleString()} has been recorded for your ${serviceName} appointment.`,
+        type: "payment" as NotificationType,
+        isRead: Math.random() > 0.7,
+        createdAt: paymentNotificationCreatedAt,
+        metadata: {
+          appointmentId: apt.id,
+          patientName: apt.patientName,
+          amount: amountPaid,
+          appointmentDate: apt.date,
+          appointmentTime: apt.time
+        }
+      });
+    }
+    
+    // Admin notification (sees clinic-wide payment)
+    notifications.push({
+      userId: adminUserId,
+      title: "Payment Received",
+      message: `A payment of ₱${amountPaid.toLocaleString()} has been received from ${apt.patientName} for their ${serviceName} appointment on ${apt.date}.`,
+      type: "payment" as NotificationType,
+      isRead: true,
+      createdAt: paymentNotificationCreatedAt,
+      metadata: {
+        appointmentId: apt.id,
+        patientName: apt.patientName,
+        amount: amountPaid,
+        appointmentDate: apt.date,
+        appointmentTime: apt.time
+      }
+    });
+  });
+
   return notifications;
 }
 
@@ -1006,7 +1047,7 @@ async function seedDatabase() {
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify(appointmentData),
+          body: JSON.stringify({ ...appointmentData, isSeeding: true }),
         });
 
         if (!response.ok) {
@@ -1024,7 +1065,7 @@ async function seedDatabase() {
     console.log(`✅ All appointments added. Total: ${createdAppointments.length}\n`);
 
     // Generate finance records
-    const generatedFinanceRecords = generateFinanceRecords(createdPatients, 80);
+    const generatedFinanceRecords = generateFinanceRecords(createdAppointments);
     console.log(`✅ Generated ${generatedFinanceRecords.length} finance records data\n`);
 
     // --- Seed Finance Records ---
@@ -1036,7 +1077,7 @@ async function seedDatabase() {
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify(record),
+          body: JSON.stringify({ ...record, isSeeding: true }),
         });
 
         if (!response.ok) {
