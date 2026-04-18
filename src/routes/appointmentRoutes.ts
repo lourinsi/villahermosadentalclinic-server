@@ -9,6 +9,7 @@ import {
   fetchAppointmentLogs,
   fetchPaymentLogs,
 } from "../controllers/appointmentController";
+import { requireAuth } from "../middleware/authMiddleware";
 
 const router = Router();
 
@@ -16,24 +17,24 @@ const router = Router();
 router.post("/public-book", bookPublicAppointment);
 
 // GET - Appointment logs
-router.get("/:id/logs", fetchAppointmentLogs);
+router.get("/:id/logs", requireAuth, fetchAppointmentLogs);
 
 // GET - Payment logs
-router.get("/:id/payments", fetchPaymentLogs);
+router.get("/:id/payments", requireAuth, fetchPaymentLogs);
 
 // POST - Add new appointment
-router.post("/", addAppointment);
+router.post("/", requireAuth, addAppointment);
 
 // GET - Get all appointments
-router.get("/", getAppointments);
+router.get("/", requireAuth, getAppointments);
 
 // GET - Get appointment by ID
-router.get("/:id", getAppointmentById);
+router.get("/:id", requireAuth, getAppointmentById);
 
 // PUT - Update appointment
-router.put("/:id", updateAppointment);
+router.put("/:id", requireAuth, updateAppointment);
 
 // DELETE - Delete appointment
-router.delete("/:id", deleteAppointment);
+router.delete("/:id", requireAuth, deleteAppointment);
 
 export default router;

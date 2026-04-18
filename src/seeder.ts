@@ -22,6 +22,41 @@ import {
 } from "./utils/notifications";
 
 // Sample data for seeding
+let authToken: string | null = null;
+
+async function loginAsAdmin() {
+  try {
+    console.log("🔐 Logging in as admin...");
+    const response = await fetch("http://localhost:3001/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "admin", password: "password" }),
+    });
+    const result = await response.json();
+    if (result.success && result.token) {
+      authToken = result.token;
+      console.log("✅ Admin login successful\n");
+      return true;
+    }
+    console.error("❌ Admin login failed:", result.message);
+    return false;
+  } catch (err) {
+    console.error("❌ Admin login error:", err);
+    return false;
+  }
+}
+
+async function fetchWithAuth(url: string, options: RequestInit = {}) {
+  const headers = {
+    ...options.headers as any,
+    "Content-Type": "application/json",
+  };
+  if (authToken) {
+    headers["Authorization"] = `Bearer ${authToken}`;
+  }
+  return fetch(url, { ...options, headers });
+}
+
 const firstNames = [
   "Sarah",
   "Michael",
@@ -494,16 +529,39 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
   const testDoctorName = "Dr. Test Doctor";
   
   if (testPatient) {
-    // Scenario: Build appointments showing different states and a conflict scenario
+    // === SCENARIO 1: AUDIT TRAIL - Shows all 3 roles making updates ===
+    // Step 1: Patient creates appointment on April 18, 2026 at 18:00 (60 mins)
+    //         - Status: reserved, Payment: half-paid (500 of 1500)
+    const auditTrailCreateTime = new Date("2026-04-18T07:14:53.009Z");
+    const auditTrailCreateLogTime = new Date("2026-04-18T07:14:53.034Z");
     
-    // BASE APPOINTMENT: Scheduled on April 15, 2026 at 10:00 (60 mins) - WILL BE KEPT
-    const baseAptCreatedAt = new Date(generateRandomTimestamp(createdAtStart, createdAtEnd));
+    generatedAppointments.push({
+      patientId: testPatient.id || "",
+      patientName: testPatient.name,
+      date: "2026-04-18",
+      time: "18:00",
+      type: 4, // Extraction type
+      duration: 60, // 18:00 - 19:00
+      doctor: testDoctorName,
+      price: 1500,
+      status: APPOINTMENT_STATUSES.find(s => s.value === "reserved")?.value || "reserved",
+      paymentStatus: "half-paid",
+      balance: 1000,
+      totalPaid: 500,
+      notes: "Audit trail: shows updates from patient, doctor, and admin roles.",
+      createdAt: auditTrailCreateTime,
+      updatedAt: auditTrailCreateTime, // Updated when doctor processes payment
+    });
+
+    // === SCENARIO 2: Permanent scheduled appointment (baseline) ===
+    // This is a complete, paid appointment for comparison
+    const permanentAptCreatedAt = new Date("2026-04-15T10:00:00.000Z");
     generatedAppointments.push({
       patientId: testPatient.id || "",
       patientName: testPatient.name,
       date: "2026-04-15",
       time: "10:00",
-      type: 1,
+      type: 1, // Checkup
       duration: 60, // 10:00 - 11:00
       doctor: testDoctorName,
       price: 1500,
@@ -511,65 +569,20 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
       paymentStatus: "paid",
       balance: 0,
       totalPaid: 1500,
-      notes: "Initial scheduled appointment - fully paid.",
-      createdAt: baseAptCreatedAt,
-      updatedAt: baseAptCreatedAt,
+      notes: "Baseline scheduled appointment - fully paid from creation.",
+      createdAt: permanentAptCreatedAt,
+      updatedAt: permanentAptCreatedAt,
     });
 
-    // CONFLICT APPOINTMENT: Same date/time, different patient - overlaps with above
-    // This will trigger auto-cancellation of pending overlaps
-    const conflictAptCreatedAt = new Date(generateRandomTimestamp(createdAtStart, createdAtEnd));
-    const otherPatient = patientsList.find(p => p.email !== "test@patient.com" && p.email);
-    if (otherPatient) {
-      generatedAppointments.push({
-        patientId: otherPatient.id || "",
-        patientName: `${otherPatient.firstName} ${otherPatient.lastName}`,
-        date: "2026-04-15",
-        time: "10:30", // Overlaps with test patient's 10:00-11:00
-        type: 0,
-        duration: 60, // 10:30 - 11:30
-        doctor: testDoctorName,
-        price: 500,
-        status: APPOINTMENT_STATUSES.find(s => s.value === "scheduled")?.value || "scheduled",
-        paymentStatus: "paid",
-        balance: 0,
-        totalPaid: 500,
-        notes: "Booking that will be kept (scheduled first).",
-        createdAt: conflictAptCreatedAt,
-        updatedAt: conflictAptCreatedAt,
-      });
-    }
-
-    // PENDING APPOINTMENT: Same slot, pending status - will be cancelled due to conflict above
-    const pendingAptCreatedAt = new Date(generateRandomTimestamp(createdAtStart, createdAtEnd));
-    generatedAppointments.push({
-      patientId: testPatient.id || "",
-      patientName: testPatient.name,
-      date: "2026-04-15",
-      time: "10:15", // Overlaps with test patient's 10:00-11:00
-      type: 2,
-      duration: 30, // 10:15 - 10:45
-      doctor: testDoctorName,
-      price: 1200,
-      status: APPOINTMENT_STATUSES.find(s => s.value === "pending")?.value || "pending",
-      paymentStatus: "unpaid",
-      balance: 1200,
-      totalPaid: 0,
-      cancellationReason: "Another appointment was scheduled for this time slot",
-      notes: "Pending appointment that overlaps - will be auto-cancelled.",
-      createdAt: pendingAptCreatedAt,
-      updatedAt: pendingAptCreatedAt,
-    });
-
-    // Additional test appointments showing various states
-    // Reserved (half-paid)
-    const reservedAptCreatedAt = new Date(generateRandomTimestamp(createdAtStart, createdAtEnd));
+    // === SCENARIO 3: Reserved with partial payment ===
+    // Patient books and pays some, waiting for doctor approval
+    const reservedAptCreatedAt = new Date("2026-04-20T08:30:00.000Z");
     generatedAppointments.push({
       patientId: testPatient.id || "",
       patientName: testPatient.name,
       date: "2026-04-20",
       time: "14:00",
-      type: 0,
+      type: 0, // Routine Cleaning
       duration: 30,
       doctor: testDoctorName,
       price: 1500,
@@ -577,49 +590,51 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
       paymentStatus: "half-paid",
       balance: 1000,
       totalPaid: 500,
-      notes: "Reserved slot with partial payment.",
+      notes: "Reserved appointment with partial payment awaiting doctor confirmation.",
       createdAt: reservedAptCreatedAt,
       updatedAt: reservedAptCreatedAt,
     });
 
-    // Pending (pending payment)
-    const pendingPaymentAptCreatedAt = new Date(generateRandomTimestamp(createdAtStart, createdAtEnd));
+    // === SCENARIO 4: Tentative appointment (pending decision) ===
+    // Patient tentatively booked, payment decision pending
+    const tentativeAptCreatedAt = new Date("2026-04-22T09:15:00.000Z");
     generatedAppointments.push({
       patientId: testPatient.id || "",
       patientName: testPatient.name,
       date: "2026-04-22",
       time: "09:00",
-      type: 3,
+      type: 3, // Root Canal
       duration: 90,
       doctor: testDoctorName,
       price: 5000,
-      status: APPOINTMENT_STATUSES.find(s => s.value === "pending")?.value || "pending",
+      status: APPOINTMENT_STATUSES.find(s => s.value === "tentative")?.value || "tentative",
       paymentStatus: "unpaid",
       balance: 5000,
       totalPaid: 0,
-      notes: "Pending appointment awaiting payment decision.",
-      createdAt: pendingPaymentAptCreatedAt,
-      updatedAt: pendingPaymentAptCreatedAt,
+      notes: "Tentative appointment awaiting patient payment confirmation.",
+      createdAt: tentativeAptCreatedAt,
+      updatedAt: tentativeAptCreatedAt,
     });
 
-    // Scheduled (fully paid)
-    const scheduledAptCreatedAt = new Date(generateRandomTimestamp(createdAtStart, createdAtEnd));
+    // === SCENARIO 5: Completed appointment (fully paid) ===
+    // Past appointment that has been completed
+    const completedAptCreatedAt = new Date("2026-04-10T11:00:00.000Z");
     generatedAppointments.push({
       patientId: testPatient.id || "",
       patientName: testPatient.name,
-      date: "2026-04-25",
+      date: "2026-04-10",
       time: "11:30",
-      type: 1,
+      type: 1, // Checkup
       duration: 30,
       doctor: testDoctorName,
       price: 500,
-      status: APPOINTMENT_STATUSES.find(s => s.value === "scheduled")?.value || "scheduled",
+      status: APPOINTMENT_STATUSES.find(s => s.value === "completed")?.value || "completed",
       paymentStatus: "paid",
       balance: 0,
       totalPaid: 500,
-      notes: "Scheduled and fully paid.",
-      createdAt: scheduledAptCreatedAt,
-      updatedAt: scheduledAptCreatedAt,
+      notes: "Past appointment - completed and fully paid.",
+      createdAt: completedAptCreatedAt,
+      updatedAt: completedAptCreatedAt,
     });
   }
 
@@ -927,7 +942,14 @@ function generateNotifications(patients: Patient[], staff: Staff[], appointments
 
 async function seedDatabase() {
   try {
-    console.log("\n🌱 Generating seeder data...\n");
+    // Perform admin login first
+    const loginSuccess = await loginAsAdmin();
+    if (!loginSuccess) {
+      console.error("❌ Seeding aborted: Admin login failed");
+      return;
+    }
+
+    console.log("🌱 Generating seeder data...\n");
 
     // Generate patients
     const generatedPatientsData = generatePatients(25);
@@ -938,11 +960,8 @@ async function seedDatabase() {
     console.log("📤 Adding patients to database via API...");
     for (const patientData of generatedPatientsData) {
       try {
-        const response = await fetch("http://localhost:3001/api/patients", {
+        const response = await fetchWithAuth("http://localhost:3001/api/patients", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
           body: JSON.stringify(patientData),
         });
 
@@ -984,11 +1003,8 @@ async function seedDatabase() {
     console.log(`📤 Adding ${dependentsToCreate.length} dependents to database via API...`);
     for (const dependentData of dependentsToCreate) {
       try {
-        const response = await fetch("http://localhost:3001/api/patients", {
+        const response = await fetchWithAuth("http://localhost:3001/api/patients", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
           body: JSON.stringify(dependentData),
         });
 
@@ -1011,11 +1027,8 @@ async function seedDatabase() {
     console.log("📤 Adding staff members to database via API...");
     for (const staffData of staffMembersData) {
       try {
-        const response = await fetch("http://localhost:3001/api/staff", {
+        const response = await fetchWithAuth("http://localhost:3001/api/staff", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
           body: JSON.stringify(staffData),
         });
 
@@ -1042,20 +1055,23 @@ async function seedDatabase() {
     console.log("📤 Adding appointments to database via API...");
     for (const appointmentData of generatedAppointmentsData) {
       try {
-        const response = await fetch("http://localhost:3001/api/appointments", {
+        const response = await fetchWithAuth("http://localhost:3001/api/appointments", {
           method: "POST",
           headers: {
-            "Content-Type": "application/json",
+            "x-seeding-key": "seeding-mode",
           },
           body: JSON.stringify({ ...appointmentData, isSeeding: true }),
         });
 
         if (!response.ok) {
-          console.error(`❌ Failed to add appointment for patientId ${appointmentData.patientId}`);
+          const errorText = await response.text();
+          console.error(`❌ Failed to add appointment for patientId ${appointmentData.patientId}. Status: ${response.status}. Error: ${errorText}`);
         } else {
           const apiResponse = await response.json();
           if (apiResponse.success && apiResponse.data) {
             createdAppointments.push(apiResponse.data);
+          } else {
+            console.error(`❌ API returned unsuccessful response for patientId ${appointmentData.patientId}: ${apiResponse.message || 'Unknown error'}`);
           }
         }
       } catch (err) {
@@ -1072,11 +1088,8 @@ async function seedDatabase() {
     console.log("📤 Adding finance records to database via API...");
     for (const record of generatedFinanceRecords) {
       try {
-        const response = await fetch("http://localhost:3001/api/finance", {
+        const response = await fetchWithAuth("http://localhost:3001/api/finance", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
           body: JSON.stringify({ ...record, isSeeding: true }),
         });
 
@@ -1093,11 +1106,8 @@ async function seedDatabase() {
     console.log("📤 Adding inventory items to database via API...");
     for (const itemData of inventoryItemsData) {
       try {
-        const response = await fetch("http://localhost:3001/api/inventory", {
+        const response = await fetchWithAuth("http://localhost:3001/api/inventory", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
           body: JSON.stringify(itemData),
         });
 
@@ -1114,11 +1124,8 @@ async function seedDatabase() {
     console.log("📤 Adding payment methods to database via API...");
     for (const paymentMethodData of paymentMethodsData) {
       try {
-        const response = await fetch("http://localhost:3001/api/payment-methods", {
+        const response = await fetchWithAuth("http://localhost:3001/api/payment-methods", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
           body: JSON.stringify(paymentMethodData),
         });
 
@@ -1137,12 +1144,12 @@ async function seedDatabase() {
     console.log(`📤 Adding ${notificationsToCreate.length} notifications to database via API...`);
     for (const notificationData of notificationsToCreate) {
       try {
-        const response = await fetch("http://localhost:3001/api/notifications", {
+        const response = await fetchWithAuth("http://localhost:3001/api/notifications", {
           method: "POST",
           headers: {
-            "Content-Type": "application/json",
+            "x-seeding-key": "seeding-mode",
           },
-          body: JSON.stringify(notificationData),
+          body: JSON.stringify({ ...notificationData, isSeeding: true }),
         });
 
         if (!response.ok) {

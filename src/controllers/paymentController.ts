@@ -13,6 +13,7 @@ import {
   resolveRecipients
 } from "../utils/notifications";
 import { getAppointmentTypeName } from "../utils/appointment-types";
+import { createAppointmentLog } from "../utils/appointmentLogs";
 
 const COLLECTION = "payments";
 
@@ -30,6 +31,7 @@ export const createPayment = (req: Request, res: Response<ApiResponse<any>>) => 
     if (!appointment) {
       return res.status(404).json({ success: false, message: 'Appointment not found' });
     }
+    const oldAppointment = { ...appointment };
 
     // Idempotency: check existing transactionId
     if (transactionId) {
@@ -114,6 +116,21 @@ export const createPayment = (req: Request, res: Response<ApiResponse<any>>) => 
       apt.updatedAt = new Date();
       appointments[idx] = apt;
       writeData('appointments', appointments);
+
+      // LOG THE EDIT: Archive previous state as a dedicated appointment log
+      const changedBy = (req as any).user?.id || (req as any).user?.username || 'admin';
+      const changedByName = (req as any).user?.name || (req as any).user?.username || (changedBy === 'admin' ? 'Admin' : changedBy);
+      
+      createAppointmentLog(
+        appointmentId, 
+        oldAppointment, 
+        apt, 
+        changedBy, 
+        changedByName, 
+        'payment', 
+        payAmount, 
+        notes
+      );
 
       // Centralized Notifications
       const recipients = resolveRecipients(apt);
@@ -240,6 +257,7 @@ export const updatePayment = (req: Request, res: Response<ApiResponse<any>>) => 
       const aptIndex = appointments.findIndex(a => a.id === oldAppointmentId);
       if (aptIndex !== -1) {
         const apt = appointments[aptIndex];
+        const oldAppointment = { ...apt };
         const amountDiff = Number(amount) - oldAmount;
         const oldPaymentStatus = apt.paymentStatus || 'unpaid';
         
@@ -251,6 +269,21 @@ export const updatePayment = (req: Request, res: Response<ApiResponse<any>>) => 
         apt.updatedAt = new Date();
         appointments[aptIndex] = apt;
         writeData('appointments', appointments);
+
+        // LOG THE EDIT: Archive previous state as a dedicated appointment log
+        const changedBy = (req as any).user?.id || (req as any).user?.username || 'admin';
+        const changedByName = (req as any).user?.name || (req as any).user?.username || (changedBy === 'admin' ? 'Admin' : changedBy);
+        
+        createAppointmentLog(
+          oldAppointmentId || '', 
+          oldAppointment, 
+          apt, 
+          changedBy, 
+          changedByName, 
+          'payment', 
+          amountDiff, 
+          notes
+        );
 
         // Notifications for update
         const recipients = resolveRecipients(apt);
@@ -378,6 +411,7 @@ export const deletePayment = (req: Request, res: Response<ApiResponse<any>>) => 
     
     if (aptIndex !== -1) {
       const apt = appointments[aptIndex];
+      const oldAppointment = { ...apt };
       console.log("[DELETE PAYMENT] Before update - totalPaid:", apt.totalPaid, "balance:", apt.balance);
       
       const oldPaymentStatus = apt.paymentStatus || 'unpaid';
@@ -391,6 +425,21 @@ export const deletePayment = (req: Request, res: Response<ApiResponse<any>>) => 
       
       console.log("[DELETE PAYMENT] After update - totalPaid:", apt.totalPaid, "balance:", apt.balance, "status:", apt.paymentStatus);
       writeData('appointments', appointments);
+
+      // LOG THE EDIT: Archive previous state as a dedicated appointment log
+      const changedBy = (req as any).user?.id || (req as any).user?.username || 'admin';
+      const changedByName = (req as any).user?.name || (req as any).user?.username || (changedBy === 'admin' ? 'Admin' : changedBy);
+      
+      createAppointmentLog(
+        appointmentId || '', 
+        oldAppointment, 
+        apt, 
+        changedBy, 
+        changedByName, 
+        'payment', 
+        -paymentAmount, 
+        'Payment deleted'
+      );
 
       // Notify if status changed
       if (apt.paymentStatus !== oldPaymentStatus) {

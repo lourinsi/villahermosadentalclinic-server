@@ -70,7 +70,6 @@ const cancelOverlappingPendingAppointments = (
           
           const oldApt = { ...apt };
           apt.status = "cancelled";
-          apt.cancellationReason = "Another appointment was scheduled for this time slot";
           apt.updatedAt = new Date();
           cancelledCount++;
 
@@ -100,7 +99,6 @@ const cancelOverlappingPendingAppointments = (
               time: apt.time,
               type: getAppointmentTypeName(apt.type, apt.customType),
               doctor: apt.doctor,
-              cancellationReason: apt.cancellationReason,
             }
           );
         }
@@ -197,38 +195,57 @@ export const addAppointment = (req: Request, res: Response<ApiResponse<Appointme
     console.log("[APPOINTMENT CREATE] New appointment object created:", newAppointment);
     
     // Auto-cancel overlapping pending appointments
-    const changedBy = (req as any).user?.id || 'admin';
-    const changedByName = (req as any).user?.name || (changedBy === 'admin' ? 'Admin' : changedBy);
+    const changedBy = (req as any).user?.id || (req as any).user?.username || 'admin';
+    const changedByName = (req as any).user?.name || (req as any).user?.username || (changedBy === 'admin' ? 'Admin' : changedBy);
+    const userRole = (req as any).user?.role || 'unknown';
+    const userEmail = (req as any).user?.email || 'unknown';
+    const userId = (req as any).user?.id || 'unknown';
+    
+    // ===== DETAILED CREATION LOGGING =====
+    console.log("═══════════════════════════════════════════════════════════════");
+    console.log("[APPOINTMENT CREATE] ✅ NEW APPOINTMENT CREATED");
+    console.log("═══════════════════════════════════════════════════════════════");
+    console.log(`📱 PORTAL: ${userRole === 'patient' ? 'PATIENT PORTAL' : userRole === 'doctor' ? 'DOCTOR PORTAL' : userRole === 'admin' ? 'ADMIN PORTAL' : 'UNKNOWN PORTAL'}`);
+    console.log(`👤 CREATED BY: ${changedByName} (ID: ${userId})`);
+    console.log(`📧 USER EMAIL: ${userEmail}`);
+    console.log(`🔑 USER ROLE: ${userRole}`);
+    console.log(`🏥 PATIENT: ${appointmentData.patientName}`);
+    console.log(`👨‍⚕️ DOCTOR: ${appointmentData.doctor || 'Not assigned'}`);
+    console.log(`📅 DATE: ${appointmentData.date}`);
+    console.log(`⏰ TIME: ${appointmentData.time}`);
+    console.log(`💰 PRICE: ${appointmentData.price || 0}`);
+    console.log(`📌 STATUS: ${appointmentData.status || 'scheduled'}`);
+    console.log(`⌛ APPOINTMENT ID: ${newAppointment.id}`);
+    console.log("═══════════════════════════════════════════════════════════════");
+    
     cancelOverlappingPendingAppointments(appointments, newAppointment, changedBy, changedByName);
 
     appointments.push(newAppointment);
     writeData(COLLECTION, appointments);
     console.log("[APPOINTMENT CREATE] Appointment saved. Total appointments:", appointments.length);
 
-    if (!isSeeding) {
-      // Centralized notification logic
-      notifyAppointmentChange(newAppointment, 'created');
+    // Centralized notification logic
+    notifyAppointmentChange(newAppointment, 'created');
 
-      const recipients = resolveRecipients(newAppointment);
-      console.log(`[APPOINTMENT CREATE] Final recipients list for payment: ${recipients.join(',')}`);
+    const recipients = resolveRecipients(newAppointment);
+    console.log(`[APPOINTMENT CREATE] Final recipients list for payment: ${recipients.join(',')}`);
 
-      // Payment status notification if not unpaid
-      if (newAppointment.paymentStatus && newAppointment.paymentStatus !== 'unpaid') {
-        notifyStatusChange(
-          newAppointment.id || '',
-          'payment',
-          'unpaid',
-          newAppointment.paymentStatus,
-          recipients,
-          {
-            patientName: newAppointment.patientName,
-            date: newAppointment.date,
-            time: newAppointment.time,
-            type: getAppointmentTypeName(newAppointment.type, newAppointment.customType),
-            doctor: newAppointment.doctor
-          }
-        );
-      }
+    // Payment status notification if not unpaid
+    if (newAppointment.paymentStatus && newAppointment.paymentStatus !== 'unpaid') {
+      notifyStatusChange(
+        newAppointment.id || '',
+        'payment',
+        'unpaid',
+        newAppointment.paymentStatus,
+        recipients,
+        {
+          patientName: newAppointment.patientName,
+          date: newAppointment.date,
+          time: newAppointment.time,
+          type: getAppointmentTypeName(newAppointment.type, newAppointment.customType),
+          doctor: newAppointment.doctor
+        }
+      );
     }
 
     // LOG INITIAL CREATION
@@ -259,9 +276,8 @@ export const addAppointment = (req: Request, res: Response<ApiResponse<Appointme
     }
 
     // Payment notification for specific amount if initial payment was made
-    if (!isSeeding && newAppointment.totalPaid && newAppointment.totalPaid > 0) {
+    if (newAppointment.totalPaid && newAppointment.totalPaid > 0) {
       console.log(`[APPOINTMENT CREATE] Initial payment detected: ${newAppointment.totalPaid}. Triggering notifyPaymentReceived.`);
-      const recipients = resolveRecipients(newAppointment);
       notifyPaymentReceived(
         newAppointment.id || '',
         newAppointment.totalPaid,
@@ -281,6 +297,16 @@ export const addAppointment = (req: Request, res: Response<ApiResponse<Appointme
       success: true,
       message: "Appointment added successfully",
       data: newAppointment,
+      meta: {
+        createdBy: {
+          name: changedByName,
+          id: userId,
+          role: userRole,
+          email: userEmail,
+          portal: userRole === 'patient' ? 'PATIENT PORTAL' : userRole === 'doctor' ? 'DOCTOR PORTAL' : userRole === 'admin' ? 'ADMIN PORTAL' : 'UNKNOWN PORTAL',
+          timestamp: new Date().toISOString()
+        }
+      }
     });
   } catch (error) {
     console.error("[APPOINTMENT CREATE] ERROR:", error);
@@ -300,23 +326,36 @@ export const getAppointments = (
     const appointments = readData<Appointment>(COLLECTION);
     const { startDate, endDate, search, doctor, type, status, patientId, parentId, anonymize, includeUnpaid, matchType } = req.query as Record<string, string>;
     
+    console.log('🔍 [getAppointments] Query params:', { includeUnpaid, status, doctor, type });
+    console.log(`📊 [getAppointments] Total appointments in DB: ${appointments.length}`);
+    console.log(`📋 [getAppointments] All statuses in DB: ${[...new Set(appointments.map(a => a.status))].join(', ')}`);
+    
     // return only non-deleted appointments
     let filtered = appointments.filter(a => !a.deleted);
+    console.log(`✅ [getAppointments] After excluding deleted: ${filtered.length}`);
 
     // Filter for Cart (pending) vs Bookings (non-pending)
     // Only exclude pending if not specifically requested and not in includeUnpaid mode
     if (includeUnpaid !== 'true' && status !== 'pending') {
+      const pendingCount = filtered.filter(a => a.status === 'pending').length;
+      console.log(`⚠️ [getAppointments] Excluding pending appointments (count: ${pendingCount})`);
       filtered = filtered.filter(a => a.status !== 'pending');
+    }
+    console.log(`📦 [getAppointments] After pending filter: ${filtered.length}`);
+    const tdbCount = filtered.filter(a => a.status === 'tbd').length;
+    console.log(`🎯 [getAppointments] TBD appointments count: ${tdbCount}`);
+    if (tdbCount > 0) {
+      console.log(`  TBD appointments:`, filtered.filter(a => a.status === 'tbd').map(a => ({ id: a.id, patient: a.patientName, date: a.date })));
     }
 
     const isGlobal = anonymize === 'true';
 
     // Handle Date range filtering first so it applies to both OR and AND logic
     if (startDate && startDate !== "") {
-      filtered = filtered.filter(a => (includeUnpaid === 'true' && (a.paymentStatus === 'unpaid' || a.status === 'pending')) || a.date >= startDate);
+      filtered = filtered.filter(a => (includeUnpaid === 'true' && (a.paymentStatus === 'unpaid' || a.status === 'pending' || a.status === 'tbd')) || a.date >= startDate);
     }
     if (endDate && endDate !== "") {
-      filtered = filtered.filter(a => (includeUnpaid === 'true' && (a.paymentStatus === 'unpaid' || a.status === 'pending')) || a.date <= endDate);
+      filtered = filtered.filter(a => (includeUnpaid === 'true' && (a.paymentStatus === 'unpaid' || a.status === 'pending' || a.status === 'tbd')) || a.date <= endDate);
     }
 
     // If search term is provided, prioritize searching (global search)
@@ -378,7 +417,7 @@ export const getAppointments = (
       filtered = filtered.filter(a => a.type === parseInt(type, 10));
     }
     if (status && status !== 'all') {
-      filtered = filtered.filter(a => (includeUnpaid === 'true' && (a.paymentStatus === 'unpaid' || a.status === 'pending')) || a.status === status);
+      filtered = filtered.filter(a => (includeUnpaid === 'true' && (a.paymentStatus === 'unpaid' || a.status === 'pending' || a.status === 'tbd')) || a.status === status);
     }
 
     if (isGlobal) {
@@ -395,6 +434,12 @@ export const getAppointments = (
         customType: a.type === APPOINTMENT_TYPES.length - 1 ? 'Other' : ''
       }));
     }
+
+    console.log(`✅ [getAppointments] Final filtered count: ${filtered.length}`);
+    const finalTdbCount = filtered.filter(a => a.status === 'tbd').length;
+    console.log(`🎯 [getAppointments] Final TBD count: ${finalTdbCount}`);
+    const finalStatuses = [...new Set(filtered.map(a => a.status))];
+    console.log(`📊 [getAppointments] Final statuses being returned: ${finalStatuses.join(', ')}`);
 
     res.json({
       success: true,
@@ -496,8 +541,8 @@ export const updateAppointment = (
     console.log("[APPOINTMENT UPDATE] updatedAppointment=", JSON.stringify(updatedAppointment, null, 2));
     console.log("[APPOINTMENT UPDATE] changedFields=", JSON.stringify(changedFields, null, 2));
 
-    const changedBy = (req as any).user?.id || 'admin';
-    const changedByName = (req as any).user?.name || (changedBy === 'admin' ? 'Admin' : changedBy);
+    const changedBy = (req as any).user?.id || (req as any).user?.username || 'admin';
+    const changedByName = (req as any).user?.name || (req as any).user?.username || (changedBy === 'admin' ? 'Admin' : changedBy);
 
     // Auto-cancel overlapping pending appointments
     cancelOverlappingPendingAppointments(appointments, updatedAppointment, changedBy, changedByName);
@@ -897,7 +942,7 @@ export const bookPublicAppointment = async (req: Request, res: Response<ApiRespo
       {} as any, 
       newAppointment, 
       'patient', // Public bookings are created by the patient
-      undefined, // changedByName
+      `${firstName} ${lastName}`, // changedByName
       'update', // changeType
       undefined, // amount
       newAppointment.notes

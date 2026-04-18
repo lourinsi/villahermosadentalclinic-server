@@ -15,6 +15,7 @@ const DEFAULT_APPOINTMENT_STATUSES = [
   { key: 3, value: 'reserved', label: 'Reserved', description: 'Tentatively reserved' },
   { key: 4, value: 'cancelled', label: 'Cancelled', description: 'Appointment cancelled' },
   { key: 5, value: 'completed', label: 'Completed', description: 'Appointment completed' },
+  { key: 6, value: 'tbd', label: 'TBD', description: 'Past appointment awaiting completion status' },
 ];
 
 // Load statuses from JSON file with fallback to defaults
@@ -42,6 +43,7 @@ export const APPOINTMENT_STATUS_KEYS = {
   RESERVED: 3,
   CANCELLED: 4,
   COMPLETED: 5,
+  TBD: 6,
 } as const;
 
 // Map numeric keys to string values for storage
@@ -82,6 +84,8 @@ export const LEGACY_STATUS_MAP: Record<string, string> = {
   
   // Direct mappings (in case old data already uses new values)
   'scheduled': 'scheduled',
+  'completed': 'completed',
+  'tbd': 'tbd',
 } as const;
 
 /**

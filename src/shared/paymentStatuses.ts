@@ -3,6 +3,8 @@ export interface PaymentStatusOption {
   value: string;
   label: string;
   description: string;
+  bgColor?: string;
+  textColor?: string;
 }
 
 export const PAYMENT_STATUSES: PaymentStatusOption[] = [
@@ -10,31 +12,41 @@ export const PAYMENT_STATUSES: PaymentStatusOption[] = [
     key: 1,
     value: "paid",
     label: "Paid",
-    description: "Payment completed in full"
+    description: "Payment completed in full",
+    bgColor: "bg-emerald-50",
+    textColor: "text-emerald-700"
   },
   {
     key: 2,
     value: "unpaid",
     label: "Unpaid",
-    description: "Payment not yet made"
+    description: "Payment not yet made",
+    bgColor: "bg-gray-50",
+    textColor: "text-gray-700"
   },
   {
     key: 3,
     value: "half-paid",
     label: "Half Paid",
-    description: "Partial payment received"
+    description: "Partial payment received",
+    bgColor: "bg-orange-50",
+    textColor: "text-orange-700"
   },
   {
     key: 4,
     value: "overdue",
     label: "Overdue",
-    description: "Payment past due date"
+    description: "Payment past due date",
+    bgColor: "bg-red-50",
+    textColor: "text-red-700"
   },
   {
     key: 5,
     value: "pay-at-clinic",
     label: "Pay at Clinic",
-    description: "Payment to be made at clinic"
+    description: "Payment to be made at clinic",
+    bgColor: "bg-blue-50",
+    textColor: "text-blue-700"
   },
 ];
 

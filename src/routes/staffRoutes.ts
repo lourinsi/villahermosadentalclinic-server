@@ -12,8 +12,12 @@ import {
   deleteStaffFinancialRecord,
   getAttendance,
 } from "../controllers/staffController";
+import { requireAuth } from "../middleware/authMiddleware";
 
 const router = Router();
+
+// Apply requireAuth to all staff routes
+router.use(requireAuth);
 
 // POST - Add new staff member
 router.post("/", createStaff);
