@@ -352,10 +352,10 @@ export const getAppointments = (
 
     // Handle Date range filtering first so it applies to both OR and AND logic
     if (startDate && startDate !== "") {
-      filtered = filtered.filter(a => (includeUnpaid === 'true' && (a.paymentStatus === 'unpaid' || a.status === 'pending' || a.status === 'tbd')) || a.date >= startDate);
+      filtered = filtered.filter(a => a.date >= startDate);
     }
     if (endDate && endDate !== "") {
-      filtered = filtered.filter(a => (includeUnpaid === 'true' && (a.paymentStatus === 'unpaid' || a.status === 'pending' || a.status === 'tbd')) || a.date <= endDate);
+      filtered = filtered.filter(a => a.date <= endDate);
     }
 
     // If search term is provided, prioritize searching (global search)
