@@ -109,6 +109,104 @@ export const addPatient = async (req: Request, res: Response<ApiResponse<Patient
   }
 };
 
+export const addPublicBookingPatient = async (req: Request, res: Response<ApiResponse<Patient>>) => {
+  try {
+    const patients = readData<Patient>(COLLECTION);
+    const patientData: Patient = req.body;
+
+    if (!patientData.firstName) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing required field: firstName",
+      });
+    }
+
+    if (!patientData.lastName) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing required field: lastName",
+      });
+    }
+
+    if (!patientData.phone) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing required field: phone",
+      });
+    }
+
+    const existingPatient = patients.find(
+      (patient) =>
+        !patient.deleted &&
+        ((patientData.email && patient.email === patientData.email) ||
+          (patientData.phone && patient.phone === patientData.phone))
+    );
+
+    if (existingPatient) {
+      const { password, ...patientForResponse } = existingPatient;
+      return res.status(200).json({
+        success: true,
+        message: "Patient already exists",
+        data: patientForResponse,
+      });
+    }
+
+    const passwordHash = await bcrypt.hash("villahermosa123", 10);
+    const newPatientId = `patient_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    const newPatient: Patient = {
+      id: newPatientId,
+      name: `${patientData.firstName || ""} ${patientData.lastName || ""}`.trim(),
+      firstName: patientData.firstName || "",
+      lastName: patientData.lastName || "",
+      email: patientData.email || "",
+      phone: patientData.phone || "",
+      alternateEmail: "",
+      alternatePhone: "",
+      password: passwordHash,
+      dateOfBirth: patientData.dateOfBirth || "",
+      address: "",
+      city: "",
+      zipCode: "",
+      insurance: "",
+      status: "active",
+      emergencyContact: "",
+      emergencyPhone: "",
+      medicalHistory: "",
+      allergies: "",
+      notes: "",
+      parentId: newPatientId,
+      isPrimary: true,
+      dentalCharts: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deleted: false,
+    };
+
+    patients.push(newPatient);
+    writeData(COLLECTION, patients);
+
+    notifyAdmin(
+      "New Public Booking Patient",
+      `A new patient, ${newPatient.firstName} ${newPatient.lastName}, was created from public booking.`,
+      "system"
+    );
+
+    const { password, ...patientForResponse } = newPatient;
+    res.status(201).json({
+      success: true,
+      message: "Patient added successfully",
+      data: patientForResponse,
+    });
+  } catch (error) {
+    console.error("[PUBLIC PATIENT CREATE] ERROR:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error adding patient",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
+
 export const addDependent = async (req: Request, res: Response<ApiResponse<Patient>>) => {
   try {
     const patients = readData<Patient>(COLLECTION);

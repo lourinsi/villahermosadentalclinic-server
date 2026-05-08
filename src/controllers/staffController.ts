@@ -18,6 +18,17 @@ const STAFF_COLLECTION = "staff";
 const FINANCIAL_COLLECTION = "staff_financial_records";
 const ATTENDANCE_COLLECTION = "staff_attendance";
 
+const isDoctorStaff = (staff: Staff) => {
+  const role = String(staff.role || "").toLowerCase();
+  const specialization = String(staff.specialization || "").toLowerCase();
+  return (
+    role.includes("doctor") ||
+    role.includes("dentist") ||
+    specialization.includes("doctor") ||
+    specialization.includes("dentist")
+  );
+};
+
 // --- CRUD Operations for Staff Members ---
 
 export const createStaff = (
@@ -111,6 +122,38 @@ export const getAllStaff = (
     res.status(500).json({
       success: false,
       message: "Error fetching staff members",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
+
+export const getPublicDoctors = (
+  req: Request,
+  res: Response<ApiResponse<Partial<Staff>[]>>
+) => {
+  try {
+    const staffMembers = readData<Staff>(STAFF_COLLECTION);
+    const doctors = staffMembers
+      .filter((staff) => !staff.deleted && isDoctorStaff(staff))
+      .map((staff) => ({
+        id: staff.id,
+        name: staff.name,
+        role: staff.role,
+        specialization: staff.specialization,
+        profilePicture: staff.profilePicture,
+        bio: staff.bio,
+      }));
+
+    res.json({
+      success: true,
+      message: "Doctors retrieved successfully",
+      data: doctors,
+    });
+  } catch (error) {
+    console.error("[STAFF PUBLIC_DOCTORS] Error fetching doctors:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error fetching doctors",
       error: error instanceof Error ? error.message : "Unknown error",
     });
   }

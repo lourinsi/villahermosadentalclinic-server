@@ -11,12 +11,16 @@ import {
   approveStaffFinancialRecord,
   deleteStaffFinancialRecord,
   getAttendance,
+  getPublicDoctors,
 } from "../controllers/staffController";
 import { requireAuth } from "../middleware/authMiddleware";
 
 const router = Router();
 
-// Apply requireAuth to all staff routes
+// Public booking needs a safe doctors-only list without exposing admin staff tools.
+router.get("/public-doctors", getPublicDoctors);
+
+// Apply requireAuth to all staff management routes
 router.use(requireAuth);
 
 // POST - Add new staff member

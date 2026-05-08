@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   addPatient,
+  addPublicBookingPatient,
   addDependent,
   getPatients,
   getPatientById,
@@ -11,6 +12,9 @@ import {
 import { requireAuth, requireRole } from "../middleware/authMiddleware";
 
 const router = Router();
+
+// POST - Add or reuse a patient from the public booking modal
+router.post("/public-booking", addPublicBookingPatient);
 
 // POST - Add new patient (admin/doctor only)
 router.post("/", requireAuth, addPatient);
