@@ -77,7 +77,7 @@ export const STATUS_DESCRIPTIONS: Record<string, string> = appointmentStatusList
 export const LEGACY_STATUS_MAP: Record<string, string> = {
   // Old -> New mappings
   'confirmed': 'scheduled',
-  'tentative': 'pending',
+  'tentative': 'reserved',
   'pending': 'pending',
   'reserved': 'reserved',
   'cancelled': 'cancelled',

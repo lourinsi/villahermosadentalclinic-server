@@ -8,6 +8,7 @@ dotenv.config();
 const app: Express = express();
 const PORT = process.env.PORT || 3001;
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
+const APPOINTMENT_LIFECYCLE_SYNC_INTERVAL_MS = 60 * 1000;
 
 // Middleware
 app.use(
@@ -67,6 +68,7 @@ import notificationRoutes from "./routes/notificationRoutes";
 import statusesRoutes from "./routes/statuses";
 import { initializeAuth } from "./controllers/authController";
 import questionnaireRoutes from './routes/questionnaires';
+import { syncPastAppointmentsToTbd } from "./utils/appointmentStatusLifecycle";
 
 // Routes
 console.log('[ROUTES] Registering API routes...');
@@ -107,6 +109,10 @@ app.use((req: express.Request, res: express.Response) => {
   try {
     // Initialize authentication (hash password)
     await initializeAuth();
+    syncPastAppointmentsToTbd();
+    setInterval(() => {
+      syncPastAppointmentsToTbd();
+    }, APPOINTMENT_LIFECYCLE_SYNC_INTERVAL_MS);
 
     app.listen(PORT, () => {
       console.log(

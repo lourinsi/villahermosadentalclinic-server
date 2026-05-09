@@ -135,7 +135,7 @@ const staffMembersData: Omit<Staff, "id" | "createdAt" | "updatedAt" | "deleted"
     specialization: "General Dentistry",
     licenseNumber: "DDS-00000",
     password: bcrypt.hashSync("doctor123", 10),
-    profilePicture: "https://images.unsplash.com/photo-1622253692010-333f2da6031d?q=80&w=200&h=200&auto=format&fit=crop",
+    profilePicture: "https://randomuser.me/api/portraits/men/41.jpg",
     bio: "Test doctor for system validation."
   },
   {
@@ -151,7 +151,7 @@ const staffMembersData: Omit<Staff, "id" | "createdAt" | "updatedAt" | "deleted"
     specialization: "General Dentistry",
     licenseNumber: "DDS-12345",
     password: bcrypt.hashSync("doctor123", 10),
-    profilePicture: "https://images.unsplash.com/photo-1559839734-2b71ea197ec2?q=80&w=200&h=200&auto=format&fit=crop",
+    profilePicture: "https://randomuser.me/api/portraits/women/68.jpg",
     bio: "Dr. Villahermosa has over 15 years of experience in general dentistry, focusing on preventive care and patient education."
   },
   {
@@ -167,7 +167,7 @@ const staffMembersData: Omit<Staff, "id" | "createdAt" | "updatedAt" | "deleted"
     specialization: "Orthodontics",
     licenseNumber: "DDS-23456",
     password: bcrypt.hashSync("doctor123", 10),
-    profilePicture: "https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?q=80&w=200&h=200&auto=format&fit=crop",
+    profilePicture: "https://randomuser.me/api/portraits/men/75.jpg",
     bio: "Dr. Chen specializes in orthodontics and is passionate about creating beautiful smiles using the latest technology."
   },
   {
@@ -183,7 +183,7 @@ const staffMembersData: Omit<Staff, "id" | "createdAt" | "updatedAt" | "deleted"
     specialization: "Pediatric Dentistry",
     licenseNumber: "DDS-34567",
     password: bcrypt.hashSync("doctor123", 10),
-    profilePicture: "https://images.unsplash.com/photo-1594824476967-48c8b964273f?q=80&w=200&h=200&auto=format&fit=crop",
+    profilePicture: "https://randomuser.me/api/portraits/women/65.jpg",
     bio: "Dr. Rodriguez loves working with children and aims to provide a comfortable and fun dental experience for her young patients."
   },
   {
@@ -198,7 +198,8 @@ const staffMembersData: Omit<Staff, "id" | "createdAt" | "updatedAt" | "deleted"
     employmentType: "Full-time",
     specialization: "Dental Hygiene",
     licenseNumber: "RDH-45678",
-    password: bcrypt.hashSync("doctor123", 10)
+    password: bcrypt.hashSync("doctor123", 10),
+    profilePicture: "https://randomuser.me/api/portraits/women/44.jpg"
   },
   {
     name: "Mark Thompson",
@@ -212,7 +213,8 @@ const staffMembersData: Omit<Staff, "id" | "createdAt" | "updatedAt" | "deleted"
     employmentType: "Full-time",
     specialization: "Chair-side Assistance",
     licenseNumber: "DA-56789",
-    password: bcrypt.hashSync("doctor123", 10)
+    password: bcrypt.hashSync("doctor123", 10),
+    profilePicture: "https://randomuser.me/api/portraits/men/32.jpg"
   },
   {
     name: "Lisa Martinez",
@@ -226,7 +228,8 @@ const staffMembersData: Omit<Staff, "id" | "createdAt" | "updatedAt" | "deleted"
     employmentType: "Full-time",
     specialization: "Office Management",
     licenseNumber: "N/A",
-    password: bcrypt.hashSync("doctor123", 10)
+    password: bcrypt.hashSync("doctor123", 10),
+    profilePicture: "https://randomuser.me/api/portraits/women/47.jpg"
   },
   {
     name: "Robert Davis",
@@ -240,7 +243,8 @@ const staffMembersData: Omit<Staff, "id" | "createdAt" | "updatedAt" | "deleted"
     employmentType: "Part-time",
     specialization: "Patient Relations",
     licenseNumber: "N/A",
-    password: bcrypt.hashSync("doctor123", 10)
+    password: bcrypt.hashSync("doctor123", 10),
+    profilePicture: "https://randomuser.me/api/portraits/men/52.jpg"
   }
 ];
 

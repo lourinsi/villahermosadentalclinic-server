@@ -2,7 +2,6 @@ import { Request, Response } from "express";
 import { Payment, ApiResponse } from "../types/payment";
 import { readData, writeData } from "../utils/storage";
 import { hasConflict } from "../utils/appointment-helpers";
-import { Appointment } from "../types/appointment";
 import { Patient } from "../types/patient";
 import { 
   createNotification, 
@@ -14,6 +13,7 @@ import {
 } from "../utils/notifications";
 import { getAppointmentTypeName } from "../utils/appointment-types";
 import { createAppointmentLog } from "../utils/appointmentLogs";
+import { readAppointmentsWithLifecycle } from "../utils/appointmentStatusLifecycle";
 
 const COLLECTION = "payments";
 
@@ -25,7 +25,7 @@ export const createPayment = (req: Request, res: Response<ApiResponse<any>>) => 
     }
 
     const payments = readData<Payment>(COLLECTION);
-    const appointments = readData<Appointment>('appointments');
+    const appointments = readAppointmentsWithLifecycle();
 
     const appointment = appointments.find(a => a.id === appointmentId);
     if (!appointment) {
@@ -253,7 +253,7 @@ export const updatePayment = (req: Request, res: Response<ApiResponse<any>>) => 
 
     // Update appointment aggregates if amount changed
     if (amount !== undefined && Number(amount) !== oldAmount) {
-      const appointments = readData<Appointment>('appointments');
+      const appointments = readAppointmentsWithLifecycle();
       const aptIndex = appointments.findIndex(a => a.id === oldAppointmentId);
       if (aptIndex !== -1) {
         const apt = appointments[aptIndex];
@@ -327,7 +327,7 @@ export const updatePayment = (req: Request, res: Response<ApiResponse<any>>) => 
 
     // If appointmentId changed, update both old and new appointments
     if (appointmentId && appointmentId !== oldAppointmentId) {
-      const appointments = readData<Appointment>('appointments');
+      const appointments = readAppointmentsWithLifecycle();
       
       // Remove amount from old appointment
       const oldAptIndex = appointments.findIndex(a => a.id === oldAppointmentId);
@@ -405,7 +405,7 @@ export const deletePayment = (req: Request, res: Response<ApiResponse<any>>) => 
     console.log("[DELETE PAYMENT] Payment marked as deleted");
 
     // Update appointment aggregates - remove the payment amount
-    const appointments = readData<Appointment>('appointments');
+    const appointments = readAppointmentsWithLifecycle();
     const aptIndex = appointments.findIndex(a => a.id === appointmentId);
     console.log("[DELETE PAYMENT] Appointment index:", aptIndex);
     

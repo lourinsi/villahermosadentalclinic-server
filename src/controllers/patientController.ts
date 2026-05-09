@@ -1,12 +1,11 @@
 import { Request, Response } from "express";
 import bcrypt from "bcryptjs";
 import { Patient, ApiResponse } from "../types/patient";
-import { Appointment } from "../types/appointment";
 import { readData, writeData } from "../utils/storage";
 import { createNotification, notifyAdmin } from "../utils/notifications";
+import { readAppointmentsWithLifecycle } from "../utils/appointmentStatusLifecycle";
 
 const COLLECTION = "patients";
-const APPOINTMENT_COLLECTION = "appointments";
 
 export const addPatient = async (req: Request, res: Response<ApiResponse<Patient>>) => {
   try {
@@ -300,7 +299,7 @@ export const getPatients = (
 
     // filter by doctor if provided (only if not searching, or we can make search global)
     if (doctor && !search) {
-      const appointments = readData<Appointment>(APPOINTMENT_COLLECTION);
+      const appointments = readAppointmentsWithLifecycle();
       const doctorLower = doctor.toLowerCase();
       const doctorPatientIds = new Set(
         appointments

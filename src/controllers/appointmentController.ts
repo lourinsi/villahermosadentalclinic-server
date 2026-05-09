@@ -16,8 +16,18 @@ import {
 } from "../utils/notifications";
 import { createAppointmentLog, getAppointmentLogs } from "../utils/appointmentLogs";
 import { createPaymentLog, getPaymentLogs } from "../utils/paymentLogs";
+import { readAppointmentsWithLifecycle } from "../utils/appointmentStatusLifecycle";
 
 const COLLECTION = "appointments";
+
+const isStaffRole = (req: Request): boolean => {
+  const role = String((req as any).user?.role || "").toLowerCase();
+  return role === "admin" || role === "doctor";
+};
+
+const isPatientCartStatus = (status?: string): boolean => {
+  return String(status || "").toLowerCase().trim() === "pending";
+};
 
 const cancelOverlappingPendingAppointments = (
   appointments: Appointment[],
@@ -117,9 +127,17 @@ const cancelOverlappingPendingAppointments = (
 
 export const addAppointment = (req: Request, res: Response<ApiResponse<Appointment>>) => {
   try {
-    const appointments = readData<Appointment>(COLLECTION);
+    const appointments = readAppointmentsWithLifecycle();
     console.log("[APPOINTMENT CREATE] Received request body:", req.body);
     const appointmentData: Appointment = req.body;
+    const isSeeding = req.body.isSeeding === true;
+
+    if (!isSeeding && isStaffRole(req) && isPatientCartStatus(appointmentData.status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Admin and doctor users cannot create pending cart appointments.",
+      });
+    }
 
     // Basic validation
     if (
@@ -138,8 +156,6 @@ export const addAppointment = (req: Request, res: Response<ApiResponse<Appointme
     }
 
     // Check for conflicts
-    const isSeeding = req.body.isSeeding === true;
-
     if (!isSeeding && hasConflict(
       appointments, 
       appointmentData.date, 
@@ -323,7 +339,7 @@ export const getAppointments = (
   res: Response<ApiResponse<Appointment[]>>
 ) => {
   try {
-    const appointments = readData<Appointment>(COLLECTION);
+    const appointments = readAppointmentsWithLifecycle();
     const { startDate, endDate, search, doctor, type, status, patientId, parentId, anonymize, includeUnpaid, matchType } = req.query as Record<string, string>;
     
     console.log('🔍 [getAppointments] Query params:', { includeUnpaid, status, doctor, type });
@@ -332,6 +348,12 @@ export const getAppointments = (
     
     // return only non-deleted appointments
     let filtered = appointments.filter(a => !a.deleted);
+    if (isStaffRole(req)) {
+      filtered = filtered.filter(a => !isPatientCartStatus(a.status));
+      if (isPatientCartStatus(status)) {
+        filtered = [];
+      }
+    }
     console.log(`✅ [getAppointments] After excluding deleted: ${filtered.length}`);
 
     // Filter for Cart (pending) vs Bookings (non-pending)
@@ -464,11 +486,18 @@ export const getAppointmentById = (
   res: Response<ApiResponse<Appointment | null>>
 ) => {
   try {
-    const appointments = readData<Appointment>(COLLECTION);
+    const appointments = readAppointmentsWithLifecycle();
     const { id } = req.params;
     const appointment = appointments.find((apt) => apt.id === id);
 
     if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        message: "Appointment not found",
+      });
+    }
+
+    if (isStaffRole(req) && isPatientCartStatus(appointment.status)) {
       return res.status(404).json({
         success: false,
         message: "Appointment not found",
@@ -498,9 +527,16 @@ export const updateAppointment = (
   res: Response<ApiResponse<Appointment | null>>
 ) => {
   try {
-    const appointments = readData<Appointment>(COLLECTION);
+    const appointments = readAppointmentsWithLifecycle();
     const { id } = req.params;
     const updates: Partial<Appointment> = req.body;
+
+    if (isStaffRole(req) && isPatientCartStatus(updates.status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Admin and doctor users cannot set appointments to pending.",
+      });
+    }
 
     const appointmentIndex = appointments.findIndex((apt) => apt.id === id);
     if (appointmentIndex === -1) {
@@ -511,6 +547,13 @@ export const updateAppointment = (
     }
 
     const oldAppointment = appointments[appointmentIndex];
+
+    if (isStaffRole(req) && isPatientCartStatus(oldAppointment.status)) {
+      return res.status(404).json({
+        success: false,
+        message: "Appointment not found",
+      });
+    }
 
     console.log("[APPOINTMENT UPDATE] appointmentId=", id);
     
@@ -783,7 +826,7 @@ export const deleteAppointment = (
   res: Response<ApiResponse<null>>
 ) => {
   try {
-    const appointments = readData<Appointment>(COLLECTION);
+    const appointments = readAppointmentsWithLifecycle();
     const { id } = req.params;
     const appointmentIndex = appointments.findIndex((apt) => apt.id === id);
 
@@ -795,6 +838,13 @@ export const deleteAppointment = (
     }
 
     const appointmentToDelete = appointments[appointmentIndex];
+    if (isStaffRole(req) && isPatientCartStatus(appointmentToDelete.status)) {
+      return res.status(404).json({
+        success: false,
+        message: "Appointment not found",
+      });
+    }
+
     const oldStatus = appointmentToDelete.status || 'pending';
 
     // soft delete
@@ -845,7 +895,7 @@ export const deleteAppointment = (
 
 export const bookPublicAppointment = async (req: Request, res: Response<ApiResponse<Appointment>>) => {
   try {
-    const appointments = readData<Appointment>(COLLECTION);
+    const appointments = readAppointmentsWithLifecycle();
     const patients = readData<Patient>("patients");
     const { firstName, lastName, email, phone, date, time, duration, type, customType, doctor, notes, patientId, serviceType } = req.body;
 
