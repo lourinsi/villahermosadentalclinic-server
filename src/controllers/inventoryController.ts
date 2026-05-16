@@ -1,47 +1,46 @@
 import { Request, Response } from "express";
 import { InventoryItem, ApiResponse } from "../types/inventory";
-import { readData, writeData } from "../utils/storage";
 import { notifyAdmin } from "../utils/notifications";
+import { prisma } from "../lib/prisma";
 
-const COLLECTION = "inventory";
 const LOW_STOCK_THRESHOLD = 5;
 
-// --- CRUD Operations ---
+const toInventoryItem = (item: unknown): InventoryItem => item as InventoryItem;
 
-export const createInventoryItem = (
+export const createInventoryItem = async (
   req: Request,
   res: Response<ApiResponse<InventoryItem>>
 ) => {
   try {
-    const inventoryItems = readData<InventoryItem>(COLLECTION);
-    console.log("[INVENTORY CREATE] Received request body:", req.body);
     const itemData: InventoryItem = req.body;
 
-    // Basic validation
     if (!itemData.item || !itemData.quantity || !itemData.unit || !itemData.costPerUnit) {
-      console.error("[INVENTORY CREATE] Missing required fields");
       return res.status(400).json({
         success: false,
         message: "Missing required fields: item, quantity, unit, costPerUnit",
       });
     }
 
-    console.log("[INVENTORY CREATE] Creating inventory item:", itemData.item);
-
-    const newItem: InventoryItem = {
-      id: `inv_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-      ...itemData,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      deleted: false,
-    };
-
-    inventoryItems.push(newItem);
-    writeData(COLLECTION, inventoryItems);
-    console.log("[INVENTORY CREATE] Inventory item saved. Total items:", inventoryItems.length);
+    const newItem = toInventoryItem(
+      await prisma.inventoryItem.create({
+        data: {
+          id: `inv_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+          item: itemData.item,
+          quantity: Number(itemData.quantity),
+          unit: itemData.unit,
+          costPerUnit: Number(itemData.costPerUnit),
+          totalValue: Number(itemData.totalValue ?? Number(itemData.quantity) * Number(itemData.costPerUnit)),
+          supplier: itemData.supplier || "",
+          lastOrdered: itemData.lastOrdered || "",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          deleted: false,
+        },
+      })
+    );
 
     if (newItem.quantity <= LOW_STOCK_THRESHOLD) {
-      notifyAdmin(
+      await notifyAdmin(
         "Low Stock Alert",
         `Item "${newItem.item}" is low on stock (${newItem.quantity} ${newItem.unit} remaining).`,
         "system"
@@ -63,28 +62,30 @@ export const createInventoryItem = (
   }
 };
 
-export const getAllInventoryItems = (
+export const getAllInventoryItems = async (
   req: Request,
   res: Response<ApiResponse<InventoryItem[]>>
 ) => {
   try {
-    const inventoryItems = readData<InventoryItem>(COLLECTION);
     const { page = "1", limit = "20" } = req.query as Record<string, string>;
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.max(1, parseInt(limit, 10) || 20);
 
-    const activeItems = inventoryItems.filter((item) => !item.deleted);
-    const total = activeItems.length;
-    const totalPages = Math.max(1, Math.ceil(total / limitNum));
-    const start = (pageNum - 1) * limitNum;
-    const end = start + limitNum;
-    const items = activeItems.slice(start, end);
+    const [total, items] = await Promise.all([
+      prisma.inventoryItem.count({ where: { deleted: false } }),
+      prisma.inventoryItem.findMany({
+        where: { deleted: false },
+        skip: (pageNum - 1) * limitNum,
+        take: limitNum,
+        orderBy: { item: "asc" },
+      }),
+    ]);
 
     res.json({
       success: true,
       message: "Inventory items retrieved successfully",
-      data: items,
-      meta: { total, page: pageNum, limit: limitNum, totalPages },
+      data: items as unknown as InventoryItem[],
+      meta: { total, page: pageNum, limit: limitNum, totalPages: Math.max(1, Math.ceil(total / limitNum)) },
     });
   } catch (error) {
     console.error("[INVENTORY GET_ALL] Error fetching inventory items:", error);
@@ -96,26 +97,20 @@ export const getAllInventoryItems = (
   }
 };
 
-export const getInventoryItemById = (
+export const getInventoryItemById = async (
   req: Request,
   res: Response<ApiResponse<InventoryItem | null>>
 ) => {
   try {
-    const inventoryItems = readData<InventoryItem>(COLLECTION);
-    const { id } = req.params;
-    const item = inventoryItems.find((rec) => rec.id === id);
-
+    const item = await prisma.inventoryItem.findUnique({ where: { id: req.params.id } });
     if (!item || item.deleted) {
-      return res.status(404).json({
-        success: false,
-        message: "Inventory item not found",
-      });
+      return res.status(404).json({ success: false, message: "Inventory item not found" });
     }
 
     res.json({
       success: true,
       message: "Inventory item retrieved successfully",
-      data: item,
+      data: toInventoryItem(item),
     });
   } catch (error) {
     console.error("[INVENTORY GET_BY_ID] Error fetching inventory item:", error);
@@ -127,35 +122,35 @@ export const getInventoryItemById = (
   }
 };
 
-export const updateInventoryItem = (
+export const updateInventoryItem = async (
   req: Request,
   res: Response<ApiResponse<InventoryItem | null>>
 ) => {
   try {
-    const inventoryItems = readData<InventoryItem>(COLLECTION);
-    const { id } = req.params;
-    const updates: Partial<InventoryItem> = req.body;
-
-    const itemIndex = inventoryItems.findIndex((rec) => rec.id === id);
-    if (itemIndex === -1 || inventoryItems[itemIndex].deleted) {
-      return res.status(404).json({
-        success: false,
-        message: "Inventory item not found",
-      });
+    const current = await prisma.inventoryItem.findUnique({ where: { id: req.params.id } });
+    if (!current || current.deleted) {
+      return res.status(404).json({ success: false, message: "Inventory item not found" });
     }
 
-    const updatedItem: InventoryItem = {
-      ...inventoryItems[itemIndex],
-      ...updates,
-      id: inventoryItems[itemIndex].id, // Prevent ID change
-      updatedAt: new Date(),
-    };
-
-    inventoryItems[itemIndex] = updatedItem;
-    writeData(COLLECTION, inventoryItems);
+    const updates = req.body;
+    const updatedItem = toInventoryItem(
+      await prisma.inventoryItem.update({
+        where: { id: req.params.id },
+        data: {
+          ...(updates.item !== undefined && { item: updates.item }),
+          ...(updates.quantity !== undefined && { quantity: Number(updates.quantity) }),
+          ...(updates.unit !== undefined && { unit: updates.unit }),
+          ...(updates.costPerUnit !== undefined && { costPerUnit: Number(updates.costPerUnit) }),
+          ...(updates.totalValue !== undefined && { totalValue: Number(updates.totalValue) }),
+          ...(updates.supplier !== undefined && { supplier: updates.supplier }),
+          ...(updates.lastOrdered !== undefined && { lastOrdered: updates.lastOrdered }),
+          updatedAt: new Date(),
+        },
+      })
+    );
 
     if (updatedItem.quantity <= LOW_STOCK_THRESHOLD) {
-      notifyAdmin(
+      await notifyAdmin(
         "Low Stock Alert",
         `Item "${updatedItem.item}" is low on stock (${updatedItem.quantity} ${updatedItem.unit} remaining).`,
         "system"
@@ -177,37 +172,22 @@ export const updateInventoryItem = (
   }
 };
 
-export const deleteInventoryItem = (
+export const deleteInventoryItem = async (
   req: Request,
   res: Response<ApiResponse<null>>
 ) => {
   try {
-    const inventoryItems = readData<InventoryItem>(COLLECTION);
-    const { id } = req.params;
-    const itemIndex = inventoryItems.findIndex((rec) => rec.id === id);
-
-    if (itemIndex === -1 || inventoryItems[itemIndex].deleted) {
-      return res.status(404).json({
-        success: false,
-        message: "Inventory item not found",
-      });
+    const current = await prisma.inventoryItem.findUnique({ where: { id: req.params.id } });
+    if (!current || current.deleted) {
+      return res.status(404).json({ success: false, message: "Inventory item not found" });
     }
 
-    // soft delete
-    inventoryItems[itemIndex] = {
-      ...inventoryItems[itemIndex],
-      deleted: true,
-      deletedAt: new Date(),
-      updatedAt: new Date(),
-    };
-    writeData(COLLECTION, inventoryItems);
-
-    console.log("[INVENTORY DELETE] Soft-deleted inventory item:", inventoryItems[itemIndex]);
-
-    res.json({
-      success: true,
-      message: "Inventory item soft-deleted successfully",
+    await prisma.inventoryItem.update({
+      where: { id: req.params.id },
+      data: { deleted: true, deletedAt: new Date(), updatedAt: new Date() },
     });
+
+    res.json({ success: true, message: "Inventory item soft-deleted successfully" });
   } catch (error) {
     console.error("[INVENTORY DELETE] Error deleting inventory item:", error);
     res.status(500).json({

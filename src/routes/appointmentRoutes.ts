@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   addAppointment,
   getAppointments,
+  getPublicAppointmentAvailability,
   getAppointmentById,
   updateAppointment,
   deleteAppointment,
@@ -16,11 +17,14 @@ const router = Router();
 // POST - Public booking (no auth required)
 router.post("/public-book", bookPublicAppointment);
 
-// GET - Appointment logs
-router.get("/:id/logs", requireAuth, fetchAppointmentLogs);
+// GET - Public availability (no auth required, anonymized)
+router.get("/public-availability", getPublicAppointmentAvailability);
 
-// GET - Payment logs
-router.get("/:id/payments", requireAuth, fetchPaymentLogs);
+// GET - Appointment logs (supports public token or authenticated staff/patient)
+router.get("/:id/logs", fetchAppointmentLogs);
+
+// GET - Payment logs (supports public token or authenticated staff/patient)
+router.get("/:id/payments", fetchPaymentLogs);
 
 // POST - Add new appointment
 router.post("/", requireAuth, addAppointment);

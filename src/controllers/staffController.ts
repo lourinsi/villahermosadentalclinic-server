@@ -5,8 +5,8 @@ import {
   Attendance as BaseAttendance,
   ApiResponse,
 } from "../types/staff";
-import { readData, writeData } from "../utils/storage";
 import { createNotification, notifyAdmin } from "../utils/notifications";
+import { prisma } from "../lib/prisma";
 
 interface Attendance extends BaseAttendance {
   id: string;
@@ -14,11 +14,24 @@ interface Attendance extends BaseAttendance {
   status: string;
 }
 
-const STAFF_COLLECTION = "staff";
-const FINANCIAL_COLLECTION = "staff_financial_records";
-const ATTENDANCE_COLLECTION = "staff_attendance";
+const staffUpdateFields = [
+  "name",
+  "role",
+  "department",
+  "email",
+  "phone",
+  "hireDate",
+  "baseSalary",
+  "status",
+  "employmentType",
+  "specialization",
+  "licenseNumber",
+  "password",
+  "profilePicture",
+  "bio",
+] as const;
 
-const isDoctorStaff = (staff: Staff) => {
+const isDoctorStaff = (staff: Record<string, any>) => {
   const role = String(staff.role || "").toLowerCase();
   const specialization = String(staff.specialization || "").toLowerCase();
   return (
@@ -29,41 +42,70 @@ const isDoctorStaff = (staff: Staff) => {
   );
 };
 
-// --- CRUD Operations for Staff Members ---
+const toStaff = (staff: unknown): Staff => staff as Staff;
+const toStaffFinancialRecord = (record: unknown): StaffFinancialRecord =>
+  record as StaffFinancialRecord;
+const toAttendance = (record: unknown): Attendance => record as Attendance;
 
-export const createStaff = (
+const currentMonthKey = () => {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  return `${now.getFullYear()}-${month}`;
+};
+
+const toFiniteNumber = (value: unknown) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+};
+
+const buildStaffUpdateData = (input: Record<string, any>) => {
+  const data: Record<string, any> = {};
+  for (const field of staffUpdateFields) {
+    if (Object.prototype.hasOwnProperty.call(input, field)) {
+      data[field] = input[field];
+    }
+  }
+  data.updatedAt = new Date();
+  return data;
+};
+
+export const createStaff = async (
   req: Request,
   res: Response<ApiResponse<Staff>>
 ) => {
   try {
-    const staffMembers = readData<Staff>(STAFF_COLLECTION);
-    console.log("[STAFF CREATE] Received request body:", req.body);
     const staffData: Staff = req.body;
 
-    // Basic validation
     if (!staffData.name || !staffData.role || !staffData.email) {
-      console.error("[STAFF CREATE] Missing required fields");
       return res.status(400).json({
         success: false,
         message: "Missing required fields: name, role, email",
       });
     }
 
-    console.log("[STAFF CREATE] Creating staff member:", staffData.name);
+    const newStaff = await prisma.staff.create({
+      data: {
+        id: `staff_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+        name: staffData.name,
+        role: staffData.role,
+        department: staffData.department || "",
+        email: staffData.email || "",
+        phone: staffData.phone || "",
+        hireDate: staffData.hireDate || "",
+        baseSalary: staffData.baseSalary || 0,
+        status: staffData.status || "active",
+        employmentType: staffData.employmentType || "",
+        specialization: staffData.specialization || "",
+        licenseNumber: staffData.licenseNumber || "",
+        password: staffData.password || null,
+        profilePicture: staffData.profilePicture || null,
+        bio: staffData.bio || null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        deleted: false,
+      },
+    });
 
-    const newStaff: Staff = {
-      id: `staff_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-      ...staffData,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      deleted: false,
-    };
-
-    staffMembers.push(newStaff);
-    writeData(STAFF_COLLECTION, staffMembers);
-    console.log("[STAFF CREATE] Staff member saved. Total staff:", staffMembers.length);
-
-    // Notify Admin
     notifyAdmin(
       "New Staff Member Added",
       `${newStaff.name} has been added to the team as ${newStaff.role}.`,
@@ -73,7 +115,7 @@ export const createStaff = (
     res.status(201).json({
       success: true,
       message: "Staff member added successfully",
-      data: newStaff,
+      data: toStaff(newStaff),
     });
   } catch (error) {
     console.error("[STAFF CREATE] ERROR:", error);
@@ -85,36 +127,36 @@ export const createStaff = (
   }
 };
 
-export const getAllStaff = (
+export const getAllStaff = async (
   req: Request,
   res: Response<ApiResponse<Staff[]>>
 ) => {
   try {
-    const staffMembers = readData<Staff>(STAFF_COLLECTION);
-    const { page = "1", limit = "20", role } = req.query as Record<
-      string,
-      string
-    >;
+    const { page = "1", limit = "20", role } = req.query as Record<string, string>;
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.max(1, parseInt(limit, 10) || 20);
 
-    let activeStaff = staffMembers.filter((staff) => !staff.deleted);
+    let activeStaff = (await prisma.staff.findMany({
+      where: { deleted: false },
+      orderBy: { createdAt: "desc" },
+    })) as any[];
 
     if (role) {
-      const rolesToFilter = role.split(',').map(r => r.trim().toLowerCase());
-      activeStaff = activeStaff.filter(staff => rolesToFilter.includes(staff.role.toLowerCase()));
+      const rolesToFilter = role.split(",").map((r) => r.trim().toLowerCase());
+      activeStaff = activeStaff.filter((staff) =>
+        rolesToFilter.includes(String(staff.role || "").toLowerCase())
+      );
     }
 
     const total = activeStaff.length;
     const totalPages = Math.max(1, Math.ceil(total / limitNum));
     const start = (pageNum - 1) * limitNum;
-    const end = start + limitNum;
-    const items = activeStaff.slice(start, end);
+    const items = activeStaff.slice(start, start + limitNum);
 
     res.json({
       success: true,
       message: "Staff members retrieved successfully",
-      data: items,
+      data: items as unknown as Staff[],
       meta: { total, page: pageNum, limit: limitNum, totalPages },
     });
   } catch (error) {
@@ -127,22 +169,20 @@ export const getAllStaff = (
   }
 };
 
-export const getPublicDoctors = (
+export const getPublicDoctors = async (
   req: Request,
   res: Response<ApiResponse<Partial<Staff>[]>>
 ) => {
   try {
-    const staffMembers = readData<Staff>(STAFF_COLLECTION);
-    const doctors = staffMembers
-      .filter((staff) => !staff.deleted && isDoctorStaff(staff))
-      .map((staff) => ({
-        id: staff.id,
-        name: staff.name,
-        role: staff.role,
-        specialization: staff.specialization,
-        profilePicture: staff.profilePicture,
-        bio: staff.bio,
-      }));
+    const staffMembers = await prisma.staff.findMany({ where: { deleted: false } });
+    const doctors = staffMembers.filter(isDoctorStaff).map((staff) => ({
+      id: staff.id,
+      name: staff.name,
+      role: staff.role,
+      specialization: staff.specialization || "",
+      profilePicture: staff.profilePicture || "",
+      bio: staff.bio || "",
+    }));
 
     res.json({
       success: true,
@@ -159,14 +199,12 @@ export const getPublicDoctors = (
   }
 };
 
-export const getStaffById = (
+export const getStaffById = async (
   req: Request,
   res: Response<ApiResponse<Staff | null>>
 ) => {
   try {
-    const staffMembers = readData<Staff>(STAFF_COLLECTION);
-    const { id } = req.params;
-    const staff = staffMembers.find((rec) => rec.id === id);
+    const staff = await prisma.staff.findUnique({ where: { id: req.params.id } });
 
     if (!staff || staff.deleted) {
       return res.status(404).json({
@@ -178,7 +216,7 @@ export const getStaffById = (
     res.json({
       success: true,
       message: "Staff member retrieved successfully",
-      data: staff,
+      data: toStaff(staff),
     });
   } catch (error) {
     console.error("[STAFF GET_BY_ID] Error fetching staff member:", error);
@@ -190,37 +228,28 @@ export const getStaffById = (
   }
 };
 
-export const updateStaff = (
+export const updateStaff = async (
   req: Request,
   res: Response<ApiResponse<Staff | null>>
 ) => {
   try {
-    const staffMembers = readData<Staff>(STAFF_COLLECTION);
-    const { id } = req.params;
-    const updates: Partial<Staff> = req.body;
-
-    const staffIndex = staffMembers.findIndex((rec) => rec.id === id);
-    if (staffIndex === -1 || staffMembers[staffIndex].deleted) {
+    const staff = await prisma.staff.findUnique({ where: { id: req.params.id } });
+    if (!staff || staff.deleted) {
       return res.status(404).json({
         success: false,
         message: "Staff member not found",
       });
     }
 
-    const updatedStaff: Staff = {
-      ...staffMembers[staffIndex],
-      ...updates,
-      id: staffMembers[staffIndex].id, // Prevent ID change
-      updatedAt: new Date(),
-    };
-
-    staffMembers[staffIndex] = updatedStaff;
-    writeData(STAFF_COLLECTION, staffMembers);
+    const updatedStaff = await prisma.staff.update({
+      where: { id: req.params.id },
+      data: buildStaffUpdateData(req.body) as any,
+    });
 
     res.json({
       success: true,
       message: "Staff member updated successfully",
-      data: updatedStaff,
+      data: toStaff(updatedStaff),
     });
   } catch (error) {
     console.error("[STAFF UPDATE] Error updating staff member:", error);
@@ -232,32 +261,23 @@ export const updateStaff = (
   }
 };
 
-export const deleteStaff = (
+export const deleteStaff = async (
   req: Request,
   res: Response<ApiResponse<null>>
 ) => {
   try {
-    const staffMembers = readData<Staff>(STAFF_COLLECTION);
-    const { id } = req.params;
-    const staffIndex = staffMembers.findIndex((rec) => rec.id === id);
-
-    if (staffIndex === -1 || staffMembers[staffIndex].deleted) {
+    const staff = await prisma.staff.findUnique({ where: { id: req.params.id } });
+    if (!staff || staff.deleted) {
       return res.status(404).json({
         success: false,
         message: "Staff member not found",
       });
     }
 
-    // soft delete
-    staffMembers[staffIndex] = {
-      ...staffMembers[staffIndex],
-      deleted: true,
-      deletedAt: new Date(),
-      updatedAt: new Date(),
-    };
-    writeData(STAFF_COLLECTION, staffMembers);
-
-    console.log("[STAFF DELETE] Soft-deleted staff member:", staffMembers[staffIndex]);
+    await prisma.staff.update({
+      where: { id: req.params.id },
+      data: { deleted: true, deletedAt: new Date(), updatedAt: new Date() },
+    });
 
     res.json({
       success: true,
@@ -273,53 +293,53 @@ export const deleteStaff = (
   }
 };
 
-export const createStaffFinancialRecord = (
+export const createStaffFinancialRecord = async (
   req: Request,
   res: Response<ApiResponse<StaffFinancialRecord>>
 ) => {
   try {
-    const staffMembers = readData<Staff>(STAFF_COLLECTION);
-    const staffFinancialRecords = readData<StaffFinancialRecord>(FINANCIAL_COLLECTION);
     const recordData: StaffFinancialRecord = req.body;
 
-    // Basic validation
     if (!recordData.staffId || !recordData.type || !recordData.amount || !recordData.date) {
       return res.status(400).json({
         success: false,
         message: "Missing required fields: staffId, type, amount, date",
       });
     }
-    
-    const staffMember = staffMembers.find(s => s.id === recordData.staffId);
-    if(!staffMember) {
-        return res.status(404).json({
-            success: false,
-            message: "Staff member not found",
-        });
+
+    const staffMember = await prisma.staff.findUnique({ where: { id: recordData.staffId } });
+    if (!staffMember || staffMember.deleted) {
+      return res.status(404).json({
+        success: false,
+        message: "Staff member not found",
+      });
     }
 
-    const newRecord: StaffFinancialRecord = {
-      ...recordData,
-      id: `staff_fin_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-      staffName: staffMember.name,
-      status: 'pending',
-    };
+    const newRecord = await prisma.staffFinancialRecord.create({
+      data: {
+        id: `staff_fin_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+        staffId: staffMember.id,
+        staffName: staffMember.name,
+        type: recordData.type,
+        amount: recordData.amount,
+        date: recordData.date,
+        status: "pending",
+        notes: recordData.notes || "",
+        repaymentSchedule: recordData.repaymentSchedule || "",
+      },
+    });
 
-    staffFinancialRecords.push(newRecord);
-    writeData(FINANCIAL_COLLECTION, staffFinancialRecords);
-
-    // Notify Staff Member
     createNotification(
       newRecord.staffId,
       "New Financial Record",
-      `A new ${newRecord.type} record for ₱${newRecord.amount.toLocaleString()} has been created.`,
+      `A new ${newRecord.type} record for PHP ${newRecord.amount.toLocaleString()} has been created.`,
       "payment"
     );
 
     res.status(201).json({
       success: true,
       message: "Staff financial record added successfully",
-      data: newRecord,
+      data: toStaffFinancialRecord(newRecord),
     });
   } catch (error) {
     console.error("[STAFF CREATE_FINANCIAL_RECORD] ERROR:", error);
@@ -331,24 +351,22 @@ export const createStaffFinancialRecord = (
   }
 };
 
-// --- Staff-specific Endpoints ---
-
-export const getStaffFinancialRecords = (
+export const getStaffFinancialRecords = async (
   req: Request,
   res: Response<ApiResponse<StaffFinancialRecord[]>>
 ) => {
   try {
-    const staffFinancialRecords = readData<StaffFinancialRecord>(FINANCIAL_COLLECTION);
+    const staffFinancialRecords = await prisma.staffFinancialRecord.findMany({
+      orderBy: { date: "desc" },
+    });
+
     res.json({
       success: true,
       message: "Staff financial records retrieved successfully",
-      data: staffFinancialRecords,
+      data: staffFinancialRecords as unknown as StaffFinancialRecord[],
     });
   } catch (error) {
-    console.error(
-      "[STAFF FINANCIAL_RECORDS] Error fetching staff financial records:",
-      error
-    );
+    console.error("[STAFF FINANCIAL_RECORDS] Error fetching staff financial records:", error);
     res.status(500).json({
       success: false,
       message: "Error fetching staff financial records",
@@ -357,18 +375,16 @@ export const getStaffFinancialRecords = (
   }
 };
 
-export const updateStaffFinancialRecord = (
+export const updateStaffFinancialRecord = async (
   req: Request,
   res: Response<ApiResponse<StaffFinancialRecord>>
 ) => {
   try {
-    const staffMembers = readData<Staff>(STAFF_COLLECTION);
-    const staffFinancialRecords = readData<StaffFinancialRecord>(FINANCIAL_COLLECTION);
     const { id } = req.params;
     const updates: Partial<StaffFinancialRecord> = req.body;
 
-    const recordIndex = staffFinancialRecords.findIndex((rec) => rec.id === id);
-    if (recordIndex === -1) {
+    const currentRecord = await prisma.staffFinancialRecord.findUnique({ where: { id } });
+    if (!currentRecord) {
       return res.status(404).json({
         success: false,
         message: "Staff financial record not found",
@@ -376,37 +392,30 @@ export const updateStaffFinancialRecord = (
     }
 
     let staffInfoUpdate: Partial<StaffFinancialRecord> = {};
-    if (
-      updates.staffId &&
-      updates.staffId !== staffFinancialRecords[recordIndex].staffId
-    ) {
-      const staffMember = staffMembers.find((s) => s.id === updates.staffId);
-      if (!staffMember) {
+    if (updates.staffId && updates.staffId !== currentRecord.staffId) {
+      const staffMember = await prisma.staff.findUnique({ where: { id: updates.staffId } });
+      if (!staffMember || staffMember.deleted) {
         return res.status(404).json({
           success: false,
           message: "Staff member not found",
         });
       }
-      staffInfoUpdate = {
-        staffId: staffMember.id,
-        staffName: staffMember.name,
-      };
+      staffInfoUpdate = { staffId: staffMember.id, staffName: staffMember.name };
     }
 
-    const updatedRecord: StaffFinancialRecord = {
-      ...staffFinancialRecords[recordIndex],
-      ...updates,
-      ...staffInfoUpdate,
-      id: staffFinancialRecords[recordIndex].id,
-    };
-
-    staffFinancialRecords[recordIndex] = updatedRecord;
-    writeData(FINANCIAL_COLLECTION, staffFinancialRecords);
+    const updatedRecord = await prisma.staffFinancialRecord.update({
+      where: { id },
+      data: {
+        ...updates,
+        ...staffInfoUpdate,
+        id: undefined,
+      } as any,
+    });
 
     res.json({
       success: true,
       message: "Staff financial record updated successfully",
-      data: updatedRecord,
+      data: toStaffFinancialRecord(updatedRecord),
     });
   } catch (error) {
     console.error("[STAFF UPDATE_FINANCIAL_RECORD] ERROR:", error);
@@ -418,23 +427,22 @@ export const updateStaffFinancialRecord = (
   }
 };
 
-export const approveStaffFinancialRecord = (
+export const approveStaffFinancialRecord = async (
   req: Request,
   res: Response<ApiResponse<StaffFinancialRecord>>
 ) => {
   try {
-    const staffFinancialRecords = readData<StaffFinancialRecord>(FINANCIAL_COLLECTION);
-    const { id } = req.params;
-    const recordIndex = staffFinancialRecords.findIndex((rec) => rec.id === id);
+    const currentRecord = await prisma.staffFinancialRecord.findUnique({
+      where: { id: req.params.id },
+    });
 
-    if (recordIndex === -1) {
+    if (!currentRecord) {
       return res.status(404).json({
         success: false,
         message: "Staff financial record not found",
       });
     }
 
-    const currentRecord = staffFinancialRecords[recordIndex];
     if (currentRecord.status === "paid") {
       return res.status(400).json({
         success: false,
@@ -442,26 +450,22 @@ export const approveStaffFinancialRecord = (
       });
     }
 
-    const updatedRecord: StaffFinancialRecord = {
-      ...currentRecord,
-      status: "approved",
-    };
+    const updatedRecord = await prisma.staffFinancialRecord.update({
+      where: { id: req.params.id },
+      data: { status: "approved" },
+    });
 
-    staffFinancialRecords[recordIndex] = updatedRecord;
-    writeData(FINANCIAL_COLLECTION, staffFinancialRecords);
-
-    // Notify Staff Member
     createNotification(
       updatedRecord.staffId,
       "Financial Record Approved",
-      `Your ${updatedRecord.type} record for ₱${updatedRecord.amount.toLocaleString()} has been approved.`,
+      `Your ${updatedRecord.type} record for PHP ${updatedRecord.amount.toLocaleString()} has been approved.`,
       "payment"
     );
 
     res.json({
       success: true,
       message: "Staff financial record approved successfully",
-      data: updatedRecord,
+      data: toStaffFinancialRecord(updatedRecord),
     });
   } catch (error) {
     console.error("[STAFF APPROVE_FINANCIAL_RECORD] ERROR:", error);
@@ -473,24 +477,22 @@ export const approveStaffFinancialRecord = (
   }
 };
 
-export const deleteStaffFinancialRecord = (
+export const deleteStaffFinancialRecord = async (
   req: Request,
   res: Response<ApiResponse<null>>
 ) => {
   try {
-    const staffFinancialRecords = readData<StaffFinancialRecord>(FINANCIAL_COLLECTION);
-    const { id } = req.params;
-    const recordIndex = staffFinancialRecords.findIndex((rec) => rec.id === id);
-
-    if (recordIndex === -1) {
+    const currentRecord = await prisma.staffFinancialRecord.findUnique({
+      where: { id: req.params.id },
+    });
+    if (!currentRecord) {
       return res.status(404).json({
         success: false,
         message: "Staff financial record not found",
       });
     }
 
-    staffFinancialRecords.splice(recordIndex, 1);
-    writeData(FINANCIAL_COLLECTION, staffFinancialRecords);
+    await prisma.staffFinancialRecord.delete({ where: { id: req.params.id } });
 
     res.json({
       success: true,
@@ -510,57 +512,87 @@ export const getAttendance = (
   req: Request,
   res: Response<ApiResponse<Attendance[]>>
 ) => {
-  try {
-    const attendanceRecords = readData<Attendance>(ATTENDANCE_COLLECTION);
+  const month = typeof req.query.month === "string" ? req.query.month : undefined;
+  prisma.staffAttendance.findMany({
+    where: month ? { date: month } : undefined,
+    orderBy: { staffName: "asc" },
+  }).then((attendanceRecords) => {
     res.json({
       success: true,
       message: "Attendance records retrieved successfully",
-      data: attendanceRecords,
+      data: attendanceRecords as unknown as Attendance[],
     });
-  } catch (error) {
+  }).catch((error) => {
     console.error("[STAFF ATTENDANCE] Error fetching attendance records:", error);
     res.status(500).json({
       success: false,
       message: "Error fetching attendance records",
       error: error instanceof Error ? error.message : "Unknown error",
     });
-  }
+  });
 };
 
-export const markAttendance = (
+export const upsertAttendance = async (
   req: Request,
   res: Response<ApiResponse<Attendance>>
 ) => {
   try {
-    const attendanceRecords = readData<Attendance>(ATTENDANCE_COLLECTION);
     const attendanceData: Attendance = req.body;
+    const staffId = String(req.params.staffId || attendanceData.staffId || "").trim();
+    const date = String(attendanceData.date || currentMonthKey()).trim();
 
-    // Basic validation
-    if (!attendanceData.staffId || !attendanceData.status || !attendanceData.date) {
+    if (!staffId || !date) {
       return res.status(400).json({
         success: false,
-        message: "Missing required fields: staffId, status, date",
+        message: "Missing required fields: staffId, date",
       });
     }
 
-    const newAttendance: Attendance = {
-      ...attendanceData,
-      id: `att_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+    const staffMember = await prisma.staff.findUnique({ where: { id: staffId } });
+    if (!staffMember || staffMember.deleted) {
+      return res.status(404).json({
+        success: false,
+        message: "Staff member not found",
+      });
+    }
+
+    const existingAttendance = await prisma.staffAttendance.findFirst({
+      where: { staffId, date },
+    });
+
+    const attendancePayload = {
+      staffId,
+      staffName: attendanceData.staffName || staffMember.name,
+      date,
+      status: attendanceData.status || "tracked",
+      hoursWorked: toFiniteNumber(attendanceData.hoursWorked),
+      daysPresent: Math.max(0, Math.trunc(toFiniteNumber(attendanceData.daysPresent))),
+      daysAbsent: Math.max(0, Math.trunc(toFiniteNumber(attendanceData.daysAbsent))),
+      overtimeHours: toFiniteNumber(attendanceData.overtimeHours),
     };
 
-    attendanceRecords.push(newAttendance);
-    writeData(ATTENDANCE_COLLECTION, attendanceRecords);
+    const savedAttendance = existingAttendance
+      ? await prisma.staffAttendance.update({
+          where: { id: existingAttendance.id },
+          data: attendancePayload,
+        })
+      : await prisma.staffAttendance.create({
+          data: {
+            id: `att_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+            ...attendancePayload,
+          },
+        });
 
-    res.status(201).json({
+    res.status(existingAttendance ? 200 : 201).json({
       success: true,
-      message: "Attendance marked successfully",
-      data: newAttendance,
+      message: existingAttendance ? "Attendance updated successfully" : "Attendance created successfully",
+      data: toAttendance(savedAttendance),
     });
   } catch (error) {
-    console.error("[STAFF MARK_ATTENDANCE] ERROR:", error);
+    console.error("[STAFF UPSERT_ATTENDANCE] ERROR:", error);
     res.status(500).json({
       success: false,
-      message: "Error marking attendance",
+      message: "Error saving attendance",
       error: error instanceof Error ? error.message : "Unknown error",
     });
   }

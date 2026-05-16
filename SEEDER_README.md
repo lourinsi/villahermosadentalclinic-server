@@ -19,7 +19,7 @@ The seeder script generates random dummy data for testing and development purpos
   - Associated patient information
   - Doctor assignments
   - Appointment types (Cleaning, Checkup, Filling, etc.)
-  - Status (pending, confirmed, completed)
+  - Status (add-to-cart, reserved, scheduled, completed)
 
 ## Prerequisites
 1. Backend server must be running

@@ -1,4 +1,5 @@
 import { Appointment } from "../types/appointment";
+import { isPatientCartStatus } from "../constants/appointmentStatuses";
 
 /**
  * Checks for appointment conflicts for a specific doctor
@@ -29,7 +30,7 @@ export const hasConflict = (
       apt.date !== newDate ||
       apt.status === "cancelled" ||
       apt.status === "completed" ||
-      apt.status === "pending" // Pending appointments in cart don't block others until paid/scheduled
+      isPatientCartStatus(apt.status) // Cart appointments don't block others until paid/scheduled
     ) {
       return false;
     }

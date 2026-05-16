@@ -109,9 +109,11 @@ app.use((req: express.Request, res: express.Response) => {
   try {
     // Initialize authentication (hash password)
     await initializeAuth();
-    syncPastAppointmentsToTbd();
+    await syncPastAppointmentsToTbd();
     setInterval(() => {
-      syncPastAppointmentsToTbd();
+      syncPastAppointmentsToTbd().catch((error) => {
+        console.error("[APPOINTMENT LIFECYCLE] Sync failed:", error);
+      });
     }, APPOINTMENT_LIFECYCLE_SYNC_INTERVAL_MS);
 
     app.listen(PORT, () => {

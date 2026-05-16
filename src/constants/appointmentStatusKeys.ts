@@ -10,7 +10,7 @@
 
 export const APPOINTMENT_STATUS_KEYS = {
   SCHEDULED: 1,
-  PENDING: 2,
+  ADD_TO_CART: 2,
   RESERVED: 3,
   CANCELLED: 4,
   COMPLETED: 5,
@@ -19,7 +19,7 @@ export const APPOINTMENT_STATUS_KEYS = {
 // Map for reference only (keys are what matter)
 export const APPOINTMENT_STATUS_LABELS: Record<number, string> = {
   1: "Scheduled",
-  2: "Pending",
+  2: "Add to Cart",
   3: "Reserved",
   4: "Cancelled",
   5: "Completed",
@@ -28,7 +28,7 @@ export const APPOINTMENT_STATUS_LABELS: Record<number, string> = {
 // Map for storage values (what gets saved to DB)
 export const APPOINTMENT_STATUS_VALUES: Record<number, string> = {
   1: "scheduled",
-  2: "pending",
+  2: "add-to-cart",
   3: "reserved",
   4: "cancelled",
   5: "completed",

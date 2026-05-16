@@ -1,12 +1,7 @@
 import { PaymentLog } from "../types/paymentLog";
-import { readData, writeData } from "./storage";
+import { prisma } from "../lib/prisma";
 
-const COLLECTION = "payment_logs";
-
-/**
- * Creates a log entry for a payment update.
- */
-export const createPaymentLog = (
+export const createPaymentLog = async (
   appointmentId: string,
   amount: number,
   paymentMethod: string,
@@ -15,33 +10,42 @@ export const createPaymentLog = (
   previousBalance: number,
   newBalance: number,
   changedByName?: string
-): PaymentLog => {
-  const logs = readData<PaymentLog>(COLLECTION);
-  
-  const newLog: PaymentLog = {
-    id: `pay_log_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-    appointmentId,
-    amount,
-    paymentMethod,
-    paymentStatus,
-    changedBy,
-    changedByName,
-    changedAt: new Date().toISOString(),
-    previousBalance,
-    newBalance
-  };
+): Promise<PaymentLog> => {
+  const newLog = await prisma.paymentLog.create({
+    data: {
+      id: `pay_log_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      appointmentId,
+      amount,
+      paymentMethod,
+      paymentStatus,
+      changedBy,
+      changedByName,
+      changedAt: new Date(),
+      previousBalance,
+      newBalance,
+    },
+  });
 
-  console.log(`[paymentLogs] CREATING: id=${newLog.id} appointmentId=${appointmentId} amount=${amount} by=${changedByName || changedBy}`);
-  logs.push(newLog);
-  writeData(COLLECTION, logs);
-  
-  return newLog;
+  return {
+    ...newLog,
+    changedAt: newLog.changedAt?.toISOString() || new Date().toISOString(),
+    changedByName: newLog.changedByName || undefined,
+    previousBalance: newLog.previousBalance || 0,
+    newBalance: newLog.newBalance || 0,
+  };
 };
 
-/**
- * Retrieves all payment logs for a specific appointment.
- */
-export const getPaymentLogs = (appointmentId: string): PaymentLog[] => {
-  const logs = readData<PaymentLog>(COLLECTION);
-  return logs.filter(l => l.appointmentId === appointmentId);
+export const getPaymentLogs = async (appointmentId: string): Promise<PaymentLog[]> => {
+  const logs = await prisma.paymentLog.findMany({
+    where: { appointmentId },
+    orderBy: { changedAt: "desc" },
+  });
+
+  return logs.map((log) => ({
+    ...log,
+    changedAt: log.changedAt?.toISOString() || "",
+    changedByName: log.changedByName || undefined,
+    previousBalance: log.previousBalance || 0,
+    newBalance: log.newBalance || 0,
+  }));
 };

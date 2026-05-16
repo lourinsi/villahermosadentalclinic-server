@@ -7,6 +7,9 @@ export interface AppointmentStatusOption {
   textColor: string;
 }
 
+export const CART_APPOINTMENT_STATUS = "add-to-cart";
+export const CART_APPOINTMENT_STATUS_LABEL = "Add to Cart";
+
 export const APPOINTMENT_STATUSES: AppointmentStatusOption[] = [
   {
     key: 1,
@@ -18,17 +21,17 @@ export const APPOINTMENT_STATUSES: AppointmentStatusOption[] = [
   },
   {
     key: 2,
-    value: "pending",
-    label: "Pending",
-    description: "Awaiting confirmation",
-    bgColor: "bg-purple-100",
-    textColor: "text-purple-700"
+    value: CART_APPOINTMENT_STATUS,
+    label: CART_APPOINTMENT_STATUS_LABEL,
+    description: "In the patient's appointment cart awaiting checkout",
+    bgColor: "bg-orange-100",
+    textColor: "text-orange-700"
   },
   {
     key: 3,
     value: "reserved",
     label: "Reserved",
-    description: "Tentatively reserved",
+    description: "Reserved awaiting payment or clinic confirmation",
     bgColor: "bg-amber-100",
     textColor: "text-amber-700"
   },

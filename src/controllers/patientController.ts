@@ -1,102 +1,170 @@
 import { Request, Response } from "express";
 import bcrypt from "bcryptjs";
 import { Patient, ApiResponse } from "../types/patient";
-import { readData, writeData } from "../utils/storage";
 import { createNotification, notifyAdmin } from "../utils/notifications";
-import { readAppointmentsWithLifecycle } from "../utils/appointmentStatusLifecycle";
+import { prisma } from "../lib/prisma";
 
-const COLLECTION = "patients";
+const patientUpdateFields = [
+  "name",
+  "firstName",
+  "lastName",
+  "email",
+  "phone",
+  "alternateEmail",
+  "alternatePhone",
+  "dateOfBirth",
+  "address",
+  "city",
+  "zipCode",
+  "insurance",
+  "status",
+  "emergencyContact",
+  "emergencyPhone",
+  "medicalHistory",
+  "allergies",
+  "notes",
+  "profilePicture",
+  "parentId",
+  "isPrimary",
+  "relationship",
+  "username",
+  "dentalCharts",
+  "balance",
+  "lastVisit",
+  "gender",
+  "civilStatus",
+  "age",
+  "ethnicity",
+  "religion",
+  "nationality",
+  "currentStreet",
+  "currentBarangay",
+  "currentProvince",
+  "permanentStreet",
+  "permanentBarangay",
+  "permanentCity",
+  "permanentProvince",
+  "permanentZipCode",
+  "landline",
+  "emergencyFirstName",
+  "emergencyLastName",
+  "emergencyRelationship",
+  "education",
+  "occupation",
+  "company",
+  "companyAddress",
+  "height",
+  "weight",
+] as const;
+
+const stripPassword = <T extends Record<string, any>>(patient: T): Omit<T, "password"> => {
+  const { password, ...patientForResponse } = patient;
+  return patientForResponse;
+};
+
+const buildPatientUpdateData = (input: Record<string, any>) => {
+  const data: Record<string, any> = {};
+
+  for (const field of patientUpdateFields) {
+    if (Object.prototype.hasOwnProperty.call(input, field)) {
+      data[field] = input[field];
+    }
+  }
+
+  data.updatedAt = new Date();
+  return data;
+};
+
+const buildPatientCreateData = (
+  patientData: Partial<Patient>,
+  id: string,
+  passwordHash?: string
+) => {
+  const firstName = patientData.firstName || "";
+  const lastName = patientData.lastName || "";
+  const isPrimary =
+    patientData.isPrimary !== undefined ? patientData.isPrimary : patientData.parentId ? false : true;
+
+  return {
+    id,
+    name: patientData.name || `${firstName} ${lastName}`.trim() || patientData.email || patientData.phone || id,
+    firstName,
+    lastName,
+    email: patientData.email || "",
+    phone: patientData.phone || "",
+    alternateEmail: patientData.alternateEmail || "",
+    alternatePhone: patientData.alternatePhone || "",
+    password: passwordHash,
+    dateOfBirth: patientData.dateOfBirth || "",
+    address: patientData.address || "",
+    city: patientData.city || "",
+    zipCode: patientData.zipCode || "",
+    insurance: patientData.insurance || "",
+    status: patientData.status || "active",
+    emergencyContact: patientData.emergencyContact || "",
+    emergencyPhone: patientData.emergencyPhone || "",
+    medicalHistory: patientData.medicalHistory || "",
+    allergies: patientData.allergies || "",
+    notes: patientData.notes || "",
+    profilePicture: patientData.profilePicture || null,
+    parentId: isPrimary ? null : patientData.parentId || null,
+    isPrimary,
+    relationship: patientData.relationship || null,
+    username: patientData.username || null,
+    dentalCharts: patientData.dentalCharts || [],
+    balance: (patientData as any).balance ?? null,
+    lastVisit: patientData.lastVisit || null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    deleted: false,
+  };
+};
 
 export const addPatient = async (req: Request, res: Response<ApiResponse<Patient>>) => {
   try {
-    // role check (middleware should already enforce this)
     const user = (req as any).user;
-    if (user) {
-      console.log("[PATIENT CREATE] triggered by user", user.username, "role", user.role);
-      if (user.role === "patient") {
-        return res.status(403).json({ success: false, message: "Patients are not allowed to add other patients" });
-      }
+    if (user?.role === "patient") {
+      return res.status(403).json({
+        success: false,
+        message: "Patients are not allowed to add other patients",
+      });
     }
 
-    const patients = readData<Patient>(COLLECTION);
-    console.log("[PATIENT CREATE] Received request body:", req.body);
     const patientData: Patient = req.body;
 
-    // Basic validation - only require firstName and lastName
     if (!patientData.firstName) {
-      console.error("[PATIENT CREATE] Missing firstName");
       return res.status(400).json({
         success: false,
         message: "Missing required field: firstName",
       });
     }
 
-    console.log("[PATIENT CREATE] Creating patient with firstName:", patientData.firstName, "lastName:", patientData.lastName);
-
-    // Use password from request body if it exists (like from seeder), otherwise create a new default password hash.
     const passwordHash = patientData.password
       ? patientData.password
       : await bcrypt.hash("villahermosa123", 10);
+    const id = `patient_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
 
-    const newPatientId = `patient_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-    const isPrimary = patientData.isPrimary !== undefined ? patientData.isPrimary : (patientData.parentId ? false : true);
+    const newPatient = await prisma.patient.create({
+      data: buildPatientCreateData(patientData, id, passwordHash) as any,
+    });
 
-    // Create patient object with ID and timestamps
-    const newPatient: Patient = {
-      id: newPatientId,
-      name: `${patientData.firstName || ""} ${patientData.lastName || ""}`.trim(),
-      firstName: patientData.firstName || "",
-      lastName: patientData.lastName || "",
-      email: patientData.email || "",
-      phone: patientData.phone || "",
-      alternateEmail: patientData.alternateEmail || "",
-      alternatePhone: patientData.alternatePhone || "",
-      password: passwordHash,
-      dateOfBirth: patientData.dateOfBirth || "",
-      address: patientData.address || "",
-      city: patientData.city || "",
-      zipCode: patientData.zipCode || "",
-      insurance: patientData.insurance || "",
-      status: patientData.status || "active",
-      emergencyContact: patientData.emergencyContact || "",
-      emergencyPhone: patientData.emergencyPhone || "",
-      medicalHistory: patientData.medicalHistory || "",
-      allergies: patientData.allergies || "",
-      notes: patientData.notes || "",
-      parentId: patientData.parentId || (isPrimary ? newPatientId : undefined),
-      isPrimary: isPrimary,
-      dentalCharts: patientData.dentalCharts || [],
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      deleted: false,
-    };
-
-    console.log("[PATIENT CREATE] New patient object created:", newPatient);
-    patients.push(newPatient);
-    writeData(COLLECTION, patients);
-    console.log("[PATIENT CREATE] Patient saved. Total patients:", patients.length);
-
-    // Notify Admin
     notifyAdmin(
       "New Patient Registration",
-      `A new patient, ${newPatient.firstName} ${newPatient.lastName}, has registered.`,
+      `A new patient, ${newPatient.firstName || ""} ${newPatient.lastName || ""}, has registered.`,
       "system"
     );
 
-    // Notify Patient
     createNotification(
-      newPatientId,
+      id,
       "Welcome to Villahermosa Dental Clinic",
       "Thank you for registering with us. We look forward to serving you!",
       "system"
     );
 
-    const { password, ...patientForResponse } = newPatient;
-
     res.status(201).json({
       success: true,
       message: "Patient added successfully",
-      data: patientForResponse,
+      data: stripPassword(newPatient) as unknown as Patient,
     });
   } catch (error) {
     console.error("[PATIENT CREATE] ERROR:", error);
@@ -108,93 +176,57 @@ export const addPatient = async (req: Request, res: Response<ApiResponse<Patient
   }
 };
 
-export const addPublicBookingPatient = async (req: Request, res: Response<ApiResponse<Patient>>) => {
+export const addPublicBookingPatient = async (
+  req: Request,
+  res: Response<ApiResponse<Patient>>
+) => {
   try {
-    const patients = readData<Patient>(COLLECTION);
     const patientData: Patient = req.body;
 
     if (!patientData.firstName) {
-      return res.status(400).json({
-        success: false,
-        message: "Missing required field: firstName",
-      });
+      return res.status(400).json({ success: false, message: "Missing required field: firstName" });
     }
-
     if (!patientData.lastName) {
-      return res.status(400).json({
-        success: false,
-        message: "Missing required field: lastName",
-      });
+      return res.status(400).json({ success: false, message: "Missing required field: lastName" });
     }
-
     if (!patientData.phone) {
-      return res.status(400).json({
-        success: false,
-        message: "Missing required field: phone",
-      });
+      return res.status(400).json({ success: false, message: "Missing required field: phone" });
     }
 
-    const existingPatient = patients.find(
-      (patient) =>
-        !patient.deleted &&
-        ((patientData.email && patient.email === patientData.email) ||
-          (patientData.phone && patient.phone === patientData.phone))
-    );
+    const existingPatient = await prisma.patient.findFirst({
+      where: {
+        deleted: false,
+        OR: [
+          ...(patientData.email ? [{ email: patientData.email }] : []),
+          ...(patientData.phone ? [{ phone: patientData.phone }] : []),
+        ],
+      },
+    });
 
     if (existingPatient) {
-      const { password, ...patientForResponse } = existingPatient;
       return res.status(200).json({
         success: true,
         message: "Patient already exists",
-        data: patientForResponse,
+        data: stripPassword(existingPatient) as unknown as Patient,
       });
     }
 
     const passwordHash = await bcrypt.hash("villahermosa123", 10);
-    const newPatientId = `patient_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-    const newPatient: Patient = {
-      id: newPatientId,
-      name: `${patientData.firstName || ""} ${patientData.lastName || ""}`.trim(),
-      firstName: patientData.firstName || "",
-      lastName: patientData.lastName || "",
-      email: patientData.email || "",
-      phone: patientData.phone || "",
-      alternateEmail: "",
-      alternatePhone: "",
-      password: passwordHash,
-      dateOfBirth: patientData.dateOfBirth || "",
-      address: "",
-      city: "",
-      zipCode: "",
-      insurance: "",
-      status: "active",
-      emergencyContact: "",
-      emergencyPhone: "",
-      medicalHistory: "",
-      allergies: "",
-      notes: "",
-      parentId: newPatientId,
-      isPrimary: true,
-      dentalCharts: [],
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      deleted: false,
-    };
-
-    patients.push(newPatient);
-    writeData(COLLECTION, patients);
+    const id = `patient_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    const newPatient = await prisma.patient.create({
+      data: buildPatientCreateData({ ...patientData, isPrimary: true }, id, passwordHash) as any,
+    });
 
     notifyAdmin(
       "New Public Booking Patient",
-      `A new patient, ${newPatient.firstName} ${newPatient.lastName}, was created from public booking.`,
+      `A new patient, ${newPatient.firstName || ""} ${newPatient.lastName || ""}, was created from public booking.`,
       "system"
     );
 
-    const { password, ...patientForResponse } = newPatient;
     res.status(201).json({
       success: true,
       message: "Patient added successfully",
-      data: patientForResponse,
+      data: stripPassword(newPatient) as unknown as Patient,
     });
   } catch (error) {
     console.error("[PUBLIC PATIENT CREATE] ERROR:", error);
@@ -208,8 +240,17 @@ export const addPublicBookingPatient = async (req: Request, res: Response<ApiRes
 
 export const addDependent = async (req: Request, res: Response<ApiResponse<Patient>>) => {
   try {
-    const patients = readData<Patient>(COLLECTION);
-    const { parentId, firstName, lastName, relationship, dateOfBirth, medicalHistory, allergies, alternateEmail, alternatePhone } = req.body;
+    const {
+      parentId,
+      firstName,
+      lastName,
+      relationship,
+      dateOfBirth,
+      medicalHistory,
+      allergies,
+      alternateEmail,
+      alternatePhone,
+    } = req.body;
 
     if (!parentId || !firstName || !lastName) {
       return res.status(400).json({
@@ -218,43 +259,39 @@ export const addDependent = async (req: Request, res: Response<ApiResponse<Patie
       });
     }
 
-    const parent = patients.find(p => p.id === parentId);
-    if (!parent) {
-      return res.status(404).json({
-        success: false,
-        message: "Parent patient not found",
-      });
+    const parent = await prisma.patient.findUnique({ where: { id: parentId } });
+    if (!parent || parent.deleted) {
+      return res.status(404).json({ success: false, message: "Parent patient not found" });
     }
 
-    const newPatient: Patient = {
-      id: `patient_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-      name: `${firstName} ${lastName}`.trim(),
-      firstName,
-      lastName,
-      email: parent.email,
-      phone: parent.phone,
-      alternateEmail: alternateEmail || "",
-      alternatePhone: alternatePhone || "",
-      parentId,
-      isPrimary: false,
-      relationship: relationship || "Family Member",
-      dateOfBirth: dateOfBirth || "",
-      address: parent.address || "",
-      city: parent.city || "",
-      zipCode: parent.zipCode || "",
-      insurance: parent.insurance || "",
-      medicalHistory: medicalHistory || "",
-      allergies: allergies || "",
-      status: "active",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      deleted: false,
-    };
+    const id = `patient_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    const newPatient = await prisma.patient.create({
+      data: {
+        id,
+        name: `${firstName} ${lastName}`.trim(),
+        firstName,
+        lastName,
+        email: parent.email || "",
+        phone: parent.phone || "",
+        alternateEmail: alternateEmail || "",
+        alternatePhone: alternatePhone || "",
+        parentId,
+        isPrimary: false,
+        relationship: relationship || "Family Member",
+        dateOfBirth: dateOfBirth || "",
+        address: parent.address || "",
+        city: parent.city || "",
+        zipCode: parent.zipCode || "",
+        insurance: parent.insurance || "",
+        medicalHistory: medicalHistory || "",
+        allergies: allergies || "",
+        status: "active",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        deleted: false,
+      },
+    });
 
-    patients.push(newPatient);
-    writeData(COLLECTION, patients);
-
-    // Notify Parent
     createNotification(
       parentId,
       "Dependent Added",
@@ -265,7 +302,7 @@ export const addDependent = async (req: Request, res: Response<ApiResponse<Patie
     res.status(201).json({
       success: true,
       message: "Dependent patient added successfully",
-      data: newPatient,
+      data: stripPassword(newPatient) as unknown as Patient,
     });
   } catch (error) {
     console.error("[ADD DEPENDENT] ERROR:", error);
@@ -277,161 +314,79 @@ export const addDependent = async (req: Request, res: Response<ApiResponse<Patie
   }
 };
 
-export const getPatients = (
+export const getPatients = async (
   req: Request,
   res: Response<ApiResponse<Patient[]>>
 ) => {
   try {
-    console.log('[PATIENT CONTROLLER] getPatients called', { 
-      reqUser: (req as any).user, 
-      reqAuthUser: (req as any).authUser, 
-      cookies: (req as any).cookies,
-      headers_auth: (req as any).headers?.authorization ? 'present' : 'missing'
-    });
-    const patients = readData<Patient>(COLLECTION);
-    // server-side filtering + pagination
-    const { page = "1", limit = "10", search = "", status = "all", parentId = "", doctor = "" } = req.query as Record<string, string>;
+    const { page = "1", limit = "10", search = "", status = "all", parentId = "", doctor = "" } =
+      req.query as Record<string, string>;
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.max(1, parseInt(limit, 10) || 10);
 
-    // only return non-deleted patients
-    let active = patients.filter(p => !p.deleted);
+    let active = (await prisma.patient.findMany({
+      where: { deleted: false },
+      orderBy: { createdAt: "desc" },
+    })) as any[];
 
-    // filter by doctor if provided (only if not searching, or we can make search global)
     if (doctor && !search) {
-      const appointments = readAppointmentsWithLifecycle();
-      const doctorLower = doctor.toLowerCase();
-      const doctorPatientIds = new Set(
-        appointments
-          .filter(a => a.doctor.toLowerCase() === doctorLower && !a.deleted)
-          .map(a => a.patientId)
-      );
-      active = active.filter(p => doctorPatientIds.has(p.id || ""));
+      const appointments = await prisma.appointment.findMany({
+        where: { deleted: false, doctor },
+        select: { patientId: true },
+      });
+      const doctorPatientIds = new Set(appointments.map((appointment) => appointment.patientId));
+      active = active.filter((patient) => doctorPatientIds.has(patient.id || ""));
     }
 
-    // filter by parentId if provided
     if (parentId) {
-      active = active.filter(p => p.parentId === parentId);
+      active = active.filter((patient) => patient.parentId === parentId);
     }
 
-    // simple search across firstName, lastName, email, phone
     if (search && search.trim().length > 0) {
       const q = search.trim().toLowerCase();
-      active = active.filter(p => {
-        const full = `${p.firstName} ${p.lastName}`.toLowerCase();
+      active = active.filter((patient) => {
+        const full = `${patient.firstName || ""} ${patient.lastName || ""}`.toLowerCase();
         return (
           full.includes(q) ||
-          (p.email || "").toLowerCase().includes(q) ||
-          (p.phone || "").toLowerCase().includes(q)
+          (patient.email || "").toLowerCase().includes(q) ||
+          (patient.phone || "").toLowerCase().includes(q)
         );
       });
     }
 
-    // filter by status (active, inactive, all)
     if (status && status !== "all") {
-      active = active.filter(p => p.status === status);
+      active = active.filter((patient) => patient.status === status);
     }
 
-    // --- START: Server-side restriction for patient role ---
-    try {
-      const requester = (req as any).user || (req as any).authUser;
-      console.log('[PATIENT CONTROLLER] getPatients check: requester=', { requester: requester ? { username: requester.username, role: requester.role, id: requester.id, email: (requester as any).email } : null });
-      
-      if (requester && requester.role === 'patient') {
-        const uEmail = String((requester as any).email || '').toLowerCase();
-        const uName = String(requester.username || '').toLowerCase();
-        const uId = (requester as any).id || (requester as any).patientId ? String((requester as any).id || (requester as any).patientId) : undefined;
+    const requester = (req as any).user || (req as any).authUser;
+    if (requester?.role === "patient") {
+      const userEmail = String(requester.email || "").toLowerCase();
+      const userName = String(requester.username || "").toLowerCase();
+      const userId = requester.id || requester.patientId ? String(requester.id || requester.patientId) : undefined;
 
-        console.log('[PATIENT CONTROLLER] filtering for patient role:', { uEmail, uName, uId, activeCount: active.length });
+      active = active.filter((patient) => {
+        const patientEmail = String(patient.email || "").toLowerCase();
+        const patientUsername = String(patient.username || patient.email || "").toLowerCase();
+        const patientName = String(patient.name || "").toLowerCase();
 
-        const filteredActive = active.filter((p: any) => {
-          try {
-            const pEmail = String(p.email || '').toLowerCase();
-            const pUsername = String(p.username || p.email || '').toLowerCase();
-            const pName = String(p.name || '').toLowerCase();
-
-            if (uEmail && pEmail === uEmail) {
-              console.log('[PATIENT CONTROLLER] matched by email:', { patientId: p.id, patientName: p.name });
-              return true;
-            }
-            if (uName && (pUsername === uName || pName === uName)) {
-              console.log('[PATIENT CONTROLLER] matched by username or name:', { patientId: p.id, patientName: p.name });
-              return true;
-            }
-            if (uId && (String(p.parentId || p.ownerId || p.familyId || p.id) === uId)) {
-              console.log('[PATIENT CONTROLLER] matched by id/familyId/parentId/ownerId:', { patientId: p.id, patientName: p.name });
-              return true;
-            }
-
-            if (p.parentId && uId && String(p.parentId) === uId) {
-              console.log('[PATIENT CONTROLLER] matched as family via parentId:', { patientId: p.id, patientName: p.name });
-              return true;
-            }
-            if (p.ownerId && uId && String(p.ownerId) === uId) {
-              console.log('[PATIENT CONTROLLER] matched as family via ownerId:', { patientId: p.id, patientName: p.name });
-              return true;
-            }
-            if (p.familyId && uId && String(p.familyId) === uId) {
-              console.log('[PATIENT CONTROLLER] matched as family via familyId:', { patientId: p.id, patientName: p.name });
-              return true;
-            }
-
-            if (Array.isArray(p.familyMembers)) {
-              if (p.familyMembers.some((m: any) => {
-                const mid = String((m && (m.id || m)) || '');
-                const memEmail = String(m && (m.email || m.username) || '').toLowerCase();
-                if (uId && mid && mid === uId) {
-                  console.log('[PATIENT CONTROLLER] matched as family via familyMembers id:', { patientId: p.id, patientName: p.name });
-                  return true;
-                }
-                if (uEmail && memEmail === uEmail) {
-                  console.log('[PATIENT CONTROLLER] matched as family via familyMembers email:', { patientId: p.id, patientName: p.name });
-                  return true;
-                }
-                return false;
-              })) return true;
-            }
-          } catch (err) {
-            console.error('[PATIENT CONTROLLER] error filtering patient:', { patientId: p.id, error: err });
-            return false;
-          }
-          return false;
-        });
-
-        console.log('[PATIENT CONTROLLER] filtered patients for patient requester', {
-          requester: { username: requester.username, role: requester.role },
-          originalCount: active.length,
-          filteredCount: filteredActive.length,
-        });
-
-        active = filteredActive;
-      } else {
-        console.log('[PATIENT CONTROLLER] no requester or not patient role - returning all active patients:', { activeCount: active.length });
-      }
-    } catch (err) {
-      console.error('[PATIENT CONTROLLER] patient filtering error', err);
+        return (
+          (userEmail && patientEmail === userEmail) ||
+          (userName && (patientUsername === userName || patientName === userName)) ||
+          (userId && String(patient.parentId || patient.id) === userId)
+        );
+      });
     }
-    // --- END: Server-side restriction for patient role ---
 
     const total = active.length;
     const totalPages = Math.max(1, Math.ceil(total / limitNum));
     const start = (pageNum - 1) * limitNum;
-    const end = start + limitNum;
-    const items = active.slice(start, end).map(p => {
-      const { password, ...patientForResponse } = p;
-      return patientForResponse;
-    });
+    const items = active.slice(start, start + limitNum).map((patient) => stripPassword(patient));
 
     res.json({
       success: true,
       message: "Patients retrieved successfully",
-      data: items,
-      meta: {
-        total,
-        page: pageNum,
-        limit: limitNum,
-        totalPages,
-      },
+      data: items as unknown as Patient[],
+      meta: { total, page: pageNum, limit: limitNum, totalPages },
     });
   } catch (error) {
     console.error("Error fetching patients:", error);
@@ -443,28 +398,21 @@ export const getPatients = (
   }
 };
 
-export const getPatientById = (
+export const getPatientById = async (
   req: Request,
   res: Response<ApiResponse<Patient | null>>
 ) => {
   try {
-    const patients = readData<Patient>(COLLECTION);
-    const { id } = req.params;
-    const patient = patients.find((p) => p.id === id);
+    const patient = await prisma.patient.findUnique({ where: { id: req.params.id } });
 
-    if (!patient) {
-      return res.status(404).json({
-        success: false,
-        message: "Patient not found",
-      });
+    if (!patient || patient.deleted) {
+      return res.status(404).json({ success: false, message: "Patient not found" });
     }
-
-    const { password, ...patientForResponse } = patient;
 
     res.json({
       success: true,
       message: "Patient retrieved successfully",
-      data: patientForResponse,
+      data: stripPassword(patient) as unknown as Patient,
     });
   } catch (error) {
     console.error("Error fetching patient:", error);
@@ -476,46 +424,34 @@ export const getPatientById = (
   }
 };
 
-export const updatePatient = (
+export const updatePatient = async (
   req: Request,
   res: Response<ApiResponse<Patient | null>>
 ) => {
   try {
-    const patients = readData<Patient>(COLLECTION);
-    const { id } = req.params;
-    console.log("[PATIENT UPDATE] Received update request for patient ID:", id);
-    console.log("[PATIENT UPDATE] Update data:", req.body);
-
-    const patientIndex = patients.findIndex((p) => p.id === id);
-
-    if (patientIndex === -1) {
-      console.error("[PATIENT UPDATE] Patient not found:", id);
-      return res.status(404).json({
-        success: false,
-        message: "Patient not found",
-      });
+    const patient = await prisma.patient.findUnique({ where: { id: req.params.id } });
+    if (!patient || patient.deleted) {
+      return res.status(404).json({ success: false, message: "Patient not found" });
     }
 
-    // To prevent accidental password removal, we delete the password field from the request body.
-    // Password updates should be handled by a dedicated endpoint.
     delete req.body.password;
 
-    const updatedPatient: Patient = {
-      ...patients[patientIndex],
-      ...req.body,
-      updatedAt: new Date(),
-    };
+    const updateData = buildPatientUpdateData(req.body);
+    if (!req.body.name && (req.body.firstName !== undefined || req.body.lastName !== undefined)) {
+      updateData.name = `${req.body.firstName ?? patient.firstName ?? ""} ${
+        req.body.lastName ?? patient.lastName ?? ""
+      }`.trim();
+    }
 
-    console.log("[PATIENT UPDATE] Updated patient data:", updatedPatient);
-    patients[patientIndex] = updatedPatient;
-    writeData(COLLECTION, patients);
-
-    const { password, ...patientForResponse } = updatedPatient;
+    const updatedPatient = await prisma.patient.update({
+      where: { id: req.params.id },
+      data: updateData as any,
+    });
 
     res.json({
       success: true,
       message: "Patient updated successfully",
-      data: patientForResponse,
+      data: stripPassword(updatedPatient) as unknown as Patient,
     });
   } catch (error) {
     console.error("[PATIENT UPDATE] ERROR:", error);
@@ -527,18 +463,14 @@ export const updatePatient = (
   }
 };
 
-// Get questionnaire data (alias for getting full patient with questionnaire fields)
-export const getQuestionnaire = (
+export const getQuestionnaire = async (
   req: Request,
   res: Response<ApiResponse<any>>
 ) => {
   try {
-    const patients = readData<Patient>(COLLECTION);
-    const { patientId } = req.params;
-    
-    const patient = patients.find((p) => p.id === patientId);
+    const patient = await prisma.patient.findUnique({ where: { id: req.params.patientId } });
 
-    if (!patient) {
+    if (!patient || patient.deleted) {
       return res.status(200).json({
         success: true,
         data: null,
@@ -546,50 +478,38 @@ export const getQuestionnaire = (
       });
     }
 
-    // Extract questionnaire fields from patient
     const questionnaireData = {
       patientId: patient.id,
-      // General Information
-      gender: (patient as any).gender,
-      civilStatus: (patient as any).civilStatus,
-      age: (patient as any).age,
-      ethnicity: (patient as any).ethnicity,
-      religion: (patient as any).religion,
-      nationality: (patient as any).nationality,
-      
-      // Current Address
-      currentStreet: (patient as any).currentStreet,
-      currentBarangay: (patient as any).currentBarangay,
+      gender: patient.gender,
+      civilStatus: patient.civilStatus,
+      age: patient.age,
+      ethnicity: patient.ethnicity,
+      religion: patient.religion,
+      nationality: patient.nationality,
+      currentStreet: patient.currentStreet,
+      currentBarangay: patient.currentBarangay,
       currentCity: patient.city,
-      currentProvince: (patient as any).currentProvince,
+      currentProvince: patient.currentProvince,
       currentZipCode: patient.zipCode,
-      
-      // Permanent Address
-      permanentStreet: (patient as any).permanentStreet,
-      permanentBarangay: (patient as any).permanentBarangay,
-      permanentCity: (patient as any).permanentCity,
-      permanentProvince: (patient as any).permanentProvince,
-      permanentZipCode: (patient as any).permanentZipCode,
-      
-      // Contact Information
-      landline: (patient as any).landline,
+      permanentStreet: patient.permanentStreet,
+      permanentBarangay: patient.permanentBarangay,
+      permanentCity: patient.permanentCity,
+      permanentProvince: patient.permanentProvince,
+      permanentZipCode: patient.permanentZipCode,
+      landline: patient.landline,
       mobileContact: patient.phone,
       emailAddress: patient.email,
-      
-      // Emergency Contact
-      emergencyFirstName: (patient as any).emergencyFirstName,
-      emergencyLastName: (patient as any).emergencyLastName,
-      emergencyRelationship: (patient as any).emergencyRelationship,
+      emergencyFirstName: patient.emergencyFirstName,
+      emergencyLastName: patient.emergencyLastName,
+      emergencyRelationship: patient.emergencyRelationship,
       emergencyContact: patient.emergencyContact,
       emergencyPhone: patient.emergencyPhone,
-      
-      // Other Information
-      education: (patient as any).education,
-      occupation: (patient as any).occupation,
-      company: (patient as any).company,
-      companyAddress: (patient as any).companyAddress,
-      height: (patient as any).height,
-      weight: (patient as any).weight,
+      education: patient.education,
+      occupation: patient.occupation,
+      company: patient.company,
+      companyAddress: patient.companyAddress,
+      height: patient.height,
+      weight: patient.weight,
     };
 
     res.status(200).json({
@@ -607,89 +527,59 @@ export const getQuestionnaire = (
   }
 };
 
-// Update questionnaire (same as updatePatient)
-export const upsertQuestionnaire = (
+export const upsertQuestionnaire = async (
   req: Request,
   res: Response<ApiResponse<Patient | null>>
 ) => {
   try {
-    const patients = readData<Patient>(COLLECTION);
-    const { patientId } = req.params;
-    console.log("[QUESTIONNAIRE UPDATE] Received update request for patient ID:", patientId);
-    console.log("[QUESTIONNAIRE UPDATE] Update data:", req.body);
-
-    const patientIndex = patients.findIndex((p) => p.id === patientId);
-
-    if (patientIndex === -1) {
-      console.error("[QUESTIONNAIRE UPDATE] Patient not found:", patientId);
-      return res.status(404).json({
-        success: false,
-        message: "Patient not found",
-      });
+    const patient = await prisma.patient.findUnique({ where: { id: req.params.patientId } });
+    if (!patient || patient.deleted) {
+      return res.status(404).json({ success: false, message: "Patient not found" });
     }
 
     const questionnaireData = req.body;
-    
-    // Map questionnaire fields to patient fields
-    const updateData: any = {
-      // General Information
+    const updateData = {
       gender: questionnaireData.gender,
       civilStatus: questionnaireData.civilStatus,
       age: questionnaireData.age,
       ethnicity: questionnaireData.ethnicity,
       religion: questionnaireData.religion,
       nationality: questionnaireData.nationality,
-      
-      // Current Address
       currentStreet: questionnaireData.currentStreet,
       currentBarangay: questionnaireData.currentBarangay,
       city: questionnaireData.currentCity,
       currentProvince: questionnaireData.currentProvince,
       zipCode: questionnaireData.currentZipCode,
-      
-      // Permanent Address
       permanentStreet: questionnaireData.permanentStreet,
       permanentBarangay: questionnaireData.permanentBarangay,
       permanentCity: questionnaireData.permanentCity,
       permanentProvince: questionnaireData.permanentProvince,
       permanentZipCode: questionnaireData.permanentZipCode,
-      
-      // Contact Information
       landline: questionnaireData.landline,
       phone: questionnaireData.mobileContact,
       email: questionnaireData.emailAddress,
-      
-      // Emergency Contact
       emergencyFirstName: questionnaireData.emergencyFirstName,
       emergencyLastName: questionnaireData.emergencyLastName,
       emergencyRelationship: questionnaireData.emergencyRelationship,
       emergencyContact: questionnaireData.emergencyContact,
       emergencyPhone: questionnaireData.emergencyPhone,
-      
-      // Other Information
       education: questionnaireData.education,
       occupation: questionnaireData.occupation,
       company: questionnaireData.company,
       companyAddress: questionnaireData.companyAddress,
       height: questionnaireData.height,
       weight: questionnaireData.weight,
-    };
-
-    const updatedPatient: Patient = {
-      ...patients[patientIndex],
-      ...updateData,
       updatedAt: new Date(),
     };
 
-    console.log("[QUESTIONNAIRE UPDATE] Updated patient data:", updatedPatient);
-    patients[patientIndex] = updatedPatient;
-    writeData(COLLECTION, patients);
-
-    const { password, ...patientForResponse } = updatedPatient;
+    const updatedPatient = await prisma.patient.update({
+      where: { id: req.params.patientId },
+      data: updateData,
+    });
 
     res.json({
       success: true,
-      data: patientForResponse,
+      data: stripPassword(updatedPatient) as unknown as Patient,
       message: "Questionnaire saved successfully",
     });
   } catch (error) {
@@ -702,35 +592,22 @@ export const upsertQuestionnaire = (
   }
 };
 
-export const deletePatient = (
+export const deletePatient = async (
   req: Request,
   res: Response<ApiResponse<null>>
 ) => {
   try {
-    const patients = readData<Patient>(COLLECTION);
-    const { id } = req.params;
-    const patientIndex = patients.findIndex((p) => p.id === id);
-
-    if (patientIndex === -1) {
-      return res.status(404).json({
-        success: false,
-        message: "Patient not found",
-      });
+    const patient = await prisma.patient.findUnique({ where: { id: req.params.id } });
+    if (!patient || patient.deleted) {
+      return res.status(404).json({ success: false, message: "Patient not found" });
     }
 
-    // soft delete
-    patients[patientIndex] = {
-      ...patients[patientIndex],
-      deleted: true,
-      deletedAt: new Date(),
-      updatedAt: new Date(),
-    };
-    writeData(COLLECTION, patients);
-
-    res.json({
-      success: true,
-      message: "Patient deleted (soft) successfully",
+    await prisma.patient.update({
+      where: { id: req.params.id },
+      data: { deleted: true, deletedAt: new Date(), updatedAt: new Date() },
     });
+
+    res.json({ success: true, message: "Patient deleted (soft) successfully" });
   } catch (error) {
     console.error("[PATIENT DELETE] Error deleting patient:", error);
     res.status(500).json({
@@ -746,26 +623,18 @@ export const changePassword = async (
   res: Response<ApiResponse<null>>
 ) => {
   try {
-    const { id } = req.params;
     const { currentPassword, newPassword } = req.body;
-    const patients = readData<Patient>(COLLECTION);
-    const patientIndex = patients.findIndex((p) => p.id === id);
+    const patient = await prisma.patient.findUnique({ where: { id: req.params.id } });
 
-    if (patientIndex === -1) {
-      return res.status(404).json({
-        success: false,
-        message: "Patient not found",
-      });
+    if (!patient || patient.deleted) {
+      return res.status(404).json({ success: false, message: "Patient not found" });
     }
 
-    const patient = patients[patientIndex];
-
-    // Verify current password
     if (!patient.password) {
-        return res.status(400).json({
-            success: false,
-            message: "Patient does not have a password set.",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Patient does not have a password set.",
+      });
     }
 
     const isMatch = await bcrypt.compare(currentPassword, patient.password);
@@ -776,23 +645,13 @@ export const changePassword = async (
       });
     }
 
-    // Hash new password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(newPassword, salt);
-
-    // Update patient
-    patients[patientIndex] = {
-      ...patient,
-      password: hashedPassword,
-      updatedAt: new Date(),
-    };
-
-    writeData(COLLECTION, patients);
-
-    res.json({
-      success: true,
-      message: "Password changed successfully",
+    const hashedPassword = await bcrypt.hash(newPassword, await bcrypt.genSalt(10));
+    await prisma.patient.update({
+      where: { id: req.params.id },
+      data: { password: hashedPassword, updatedAt: new Date() },
     });
+
+    res.json({ success: true, message: "Password changed successfully" });
   } catch (error) {
     console.error("[PATIENT PASSWORD] Error changing password:", error);
     res.status(500).json({

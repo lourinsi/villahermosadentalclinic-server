@@ -2,7 +2,8 @@ import express, { Request, Response, NextFunction } from 'express';
 import {
   getQuestionnaire,
   upsertQuestionnaire,
-} from '../controllers/patientController';
+  deleteQuestionnaire,
+} from '../controllers/questionnaireController';
 
 const router = express.Router();
 
@@ -17,5 +18,8 @@ router.get('/:patientId', getQuestionnaire);
 
 // Create or update questionnaire
 router.put('/:patientId', upsertQuestionnaire);
+
+// Delete questionnaire
+router.delete('/:patientId', deleteQuestionnaire);
 
 export default router;

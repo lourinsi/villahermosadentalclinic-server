@@ -1,496 +1,431 @@
 import { Request, Response } from "express";
 import { Payment, ApiResponse } from "../types/payment";
-import { readData, writeData } from "../utils/storage";
 import { hasConflict } from "../utils/appointment-helpers";
-import { Patient } from "../types/patient";
-import { 
-  createNotification, 
-  notifyAdmin, 
-  updateOrCreateNotificationForAppointment,
+import {
+  notifyAdmin,
   notifyPaymentReceived,
   notifyStatusChange,
-  resolveRecipients
+  resolveRecipients,
 } from "../utils/notifications";
 import { getAppointmentTypeName } from "../utils/appointment-types";
 import { createAppointmentLog } from "../utils/appointmentLogs";
 import { readAppointmentsWithLifecycle } from "../utils/appointmentStatusLifecycle";
+import { prisma } from "../lib/prisma";
+import {
+  isPatientCartStatus,
+  normalizeStatus,
+} from "../constants/appointmentStatuses";
 
-const COLLECTION = "payments";
+const toPayment = (payment: unknown): Payment => payment as Payment;
+const toAppointment = (appointment: unknown): any => appointment as any;
 
-export const createPayment = (req: Request, res: Response<ApiResponse<any>>) => {
+const paymentStatusFor = (totalPaid: number, balance: number): string => {
+  if (balance <= 0) return "paid";
+  if (totalPaid > 0) return "half-paid";
+  return "unpaid";
+};
+
+const appointmentData = (appointment: any) => ({
+  patientName: appointment.patientName,
+  date: appointment.date,
+  time: appointment.time,
+  type: getAppointmentTypeName(appointment.type, appointment.customType),
+  doctor: appointment.doctor,
+});
+
+export const createPayment = async (req: Request, res: Response<ApiResponse<any>>) => {
   try {
     const { appointmentId, patientId, amount, method, date, transactionId, notes } = req.body;
-    if (!appointmentId || !amount || isNaN(Number(amount))) {
-      return res.status(400).json({ success: false, message: 'Missing appointmentId or invalid amount' });
+    if (!appointmentId || amount === undefined || isNaN(Number(amount))) {
+      return res.status(400).json({ success: false, message: "Missing appointmentId or invalid amount" });
     }
 
-    const payments = readData<Payment>(COLLECTION);
-    const appointments = readAppointmentsWithLifecycle();
-
-    const appointment = appointments.find(a => a.id === appointmentId);
-    if (!appointment) {
-      return res.status(404).json({ success: false, message: 'Appointment not found' });
+    const appointment = toAppointment(
+      await prisma.appointment.findUnique({ where: { id: appointmentId } })
+    );
+    if (!appointment || appointment.deleted) {
+      return res.status(404).json({ success: false, message: "Appointment not found" });
     }
-    const oldAppointment = { ...appointment };
 
-    // Idempotency: check existing transactionId
     if (transactionId) {
-      const existing = payments.find(p => p.transactionId === transactionId);
+      const existing = await prisma.payment.findFirst({
+        where: { transactionId, deleted: false },
+      });
       if (existing) {
-        return res.json({ success: true, message: 'Payment already exists', data: { payment: existing } });
+        return res.json({
+          success: true,
+          message: "Payment already exists",
+          data: { payment: toPayment(existing) },
+        });
       }
     }
 
     const payAmount = Number(amount);
-    
-    // Handle "Pay at Clinic" (Cash upon appointment) which might have 0 amount initially in createPayment
-    // but we want to process it to update appointment status
-    const isPayAtClinic = method === 'Pay at Clinic';
-
-    const newPayment: Payment = {
-      id: `pay_${Date.now()}_${Math.floor(Math.random()*1000)}`,
+    const isPayAtClinic = method === "Pay at Clinic";
+    const newPaymentData = {
+      id: `pay_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
       appointmentId,
       patientId: patientId || appointment.patientId,
       amount: payAmount,
-      method: method || 'unknown',
-      date: date || new Date().toISOString().split('T')[0],
-      transactionId: transactionId || (isPayAtClinic ? `PAC-${Math.random().toString(36).slice(2,9).toUpperCase()}` : `T-${Math.random().toString(36).slice(2,9).toUpperCase()}`),
-      notes: notes || (isPayAtClinic ? 'Cash upon appointment' : ''),
-      status: isPayAtClinic && payAmount === 0 ? 'pending' : 'completed',
+      method: method || "unknown",
+      date: date || new Date().toISOString().split("T")[0],
+      transactionId:
+        transactionId ||
+        `${isPayAtClinic ? "PAC" : "T"}-${Math.random().toString(36).slice(2, 9).toUpperCase()}`,
+      notes: notes || (isPayAtClinic ? "Cash upon appointment" : ""),
+      status: isPayAtClinic && payAmount === 0 ? "pending" : "completed",
       createdAt: new Date(),
       updatedAt: new Date(),
       deleted: false,
     };
 
-    if (!isPayAtClinic || payAmount > 0) {
-      payments.push(newPayment);
-      writeData(COLLECTION, payments);
-    }
+    const newPayment =
+      !isPayAtClinic || payAmount > 0
+        ? toPayment(await prisma.payment.create({ data: newPaymentData }))
+        : (newPaymentData as Payment);
 
-    // update appointment aggregates
-    const idx = appointments.findIndex(a => a.id === appointmentId);
-    if (idx !== -1) {
-      const apt = appointments[idx];
-      apt.totalPaid = (apt.totalPaid || 0) + payAmount;
-      apt.balance = (apt.balance != null ? apt.balance : (apt.price || 0)) - apt.totalPaid; // Recalculate based on total paid
-      
-      const oldStatus = apt.status || 'pending';
-      const oldPaymentStatus = apt.paymentStatus || 'unpaid';
+    const oldAppointment = { ...appointment };
+    const totalPaid = (appointment.totalPaid || 0) + payAmount;
+    const balance = (appointment.price || 0) - (appointment.discount || 0) - totalPaid;
+    const oldStatus = normalizeStatus(appointment.status);
+    const oldPaymentStatus = appointment.paymentStatus || "unpaid";
+    let newStatus = appointment.status;
+    const newPaymentStatus = paymentStatusFor(totalPaid, balance);
 
-      if (apt.balance <= 0) apt.paymentStatus = 'paid';
-      else if (apt.totalPaid > 0) apt.paymentStatus = 'half-paid';
-      else apt.paymentStatus = 'unpaid';
-      
-      // Promotion Logic
-      let conflictFound = false;
-      if (apt.status === 'pending') {
-        // Check for conflicts before promoting
-        const conflict = hasConflict(
-          appointments,
-          apt.date,
-          apt.time,
-          apt.duration || 60,
-          apt.doctor || "",
-          apt.id
-        );
-
-        if (conflict) {
-          conflictFound = true;
-          notifyAdmin(
-            "Appointment Conflict Detected",
-            `${apt.patientName} tried to confirm an appointment on ${apt.date} at ${apt.time}, but this slot is already taken.`,
-            "appointment",
-            { appointmentId: apt.id, patientName: apt.patientName }
-          );
-        } else {
-          if (isPayAtClinic) {
-            apt.status = 'pending';
-          } else if (apt.paymentStatus === 'paid') {
-            apt.status = 'scheduled';
-          } else if (apt.paymentStatus === 'half-paid') {
-            apt.status = 'reserved';
-          }
-        }
-      }
-
-      apt.updatedAt = new Date();
-      appointments[idx] = apt;
-      writeData('appointments', appointments);
-
-      // LOG THE EDIT: Archive previous state as a dedicated appointment log
-      const changedBy = (req as any).user?.id || (req as any).user?.username || 'admin';
-      const changedByName = (req as any).user?.name || (req as any).user?.username || (changedBy === 'admin' ? 'Admin' : changedBy);
-      
-      createAppointmentLog(
-        appointmentId, 
-        oldAppointment, 
-        apt, 
-        changedBy, 
-        changedByName, 
-        'payment', 
-        payAmount, 
-        notes
+    if (isPatientCartStatus(appointment.status)) {
+      const appointments = await readAppointmentsWithLifecycle();
+      const conflict = hasConflict(
+        appointments,
+        appointment.date,
+        appointment.time,
+        appointment.duration || 60,
+        appointment.doctor || "",
+        appointment.id
       );
 
-      // Centralized Notifications
-      const recipients = resolveRecipients(apt);
-      const appointmentData = {
-        patientName: apt.patientName,
-        date: apt.date,
-        time: apt.time,
-        type: getAppointmentTypeName(apt.type, apt.customType),
-        doctor: apt.doctor
-      };
-
-      // 1. Notify Status Change (if any)
-      if (apt.status !== oldStatus) {
-        notifyStatusChange(apt.id || '', 'status', oldStatus, apt.status as string, recipients, appointmentData);
-      }
-      
-      // 2. Notify Payment Status Change (if any)
-      if (apt.paymentStatus !== oldPaymentStatus) {
-        notifyStatusChange(apt.id || '', 'payment', oldPaymentStatus, apt.paymentStatus as string, recipients, appointmentData);
-      }
-
-      // 3. Notify Specific Payment Receipt
-      if (payAmount > 0) {
-        notifyPaymentReceived(apt.id || '', payAmount, recipients, appointmentData, newPayment.id);
+      if (conflict) {
+        await notifyAdmin(
+          "Appointment Conflict Detected",
+          `${appointment.patientName} tried to confirm an appointment on ${appointment.date} at ${appointment.time}, but this slot is already taken.`,
+          "appointment",
+          { appointmentId: appointment.id, patientName: appointment.patientName }
+        );
+      } else if (!isPayAtClinic) {
+        if (newPaymentStatus === "paid") newStatus = "scheduled";
+        else if (newPaymentStatus === "half-paid") newStatus = "reserved";
       }
     }
 
-    // update patient balance if present
-    const patients = readData<Patient>('patients');
-    const pIdx = patients.findIndex(p => p.id === (patientId || appointment.patientId));
-    if (pIdx !== -1) {
-      const pat = patients[pIdx];
-      (pat as any).balance = ((pat as any).balance || 0) - payAmount;
-      pat.updatedAt = new Date();
-      patients[pIdx] = pat;
-      writeData('patients', patients);
+    const updatedAppointment = toAppointment(
+      await prisma.appointment.update({
+        where: { id: appointmentId },
+        data: {
+          totalPaid,
+          balance,
+          paymentStatus: newPaymentStatus,
+          status: newStatus,
+          updatedAt: new Date(),
+        },
+      })
+    );
+
+    const changedBy = (req as any).user?.id || (req as any).user?.username || "admin";
+    const changedByName =
+      (req as any).user?.name ||
+      (req as any).user?.username ||
+      (changedBy === "admin" ? "Admin" : changedBy);
+
+    await createAppointmentLog(
+      appointmentId,
+      oldAppointment,
+      updatedAppointment,
+      changedBy,
+      changedByName,
+      "payment",
+      payAmount,
+      notes
+    );
+
+    const recipients = await resolveRecipients(updatedAppointment);
+    if (updatedAppointment.status !== oldStatus) {
+      await notifyStatusChange(
+        appointmentId,
+        "status",
+        oldStatus,
+        updatedAppointment.status,
+        recipients,
+        appointmentData(updatedAppointment)
+      );
+    }
+    if (updatedAppointment.paymentStatus !== oldPaymentStatus) {
+      await notifyStatusChange(
+        appointmentId,
+        "payment",
+        oldPaymentStatus,
+        updatedAppointment.paymentStatus,
+        recipients,
+        appointmentData(updatedAppointment)
+      );
+    }
+    if (payAmount > 0) {
+      await notifyPaymentReceived(
+        appointmentId,
+        payAmount,
+        recipients,
+        appointmentData(updatedAppointment),
+        newPayment.id
+      );
     }
 
-    // also create finance record (reuse existing finance helpers pattern)
-    const finance = readData<any>('finance_records');
-    const financeRecord = {
-      id: `fin_${Date.now()}_${Math.floor(Math.random()*1000)}`,
-      patientId: newPayment.patientId,
-      type: 'payment',
-      amount: newPayment.amount,
-      date: newPayment.date,
-      description: `Payment ${newPayment.id} for appointment ${appointmentId}`,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      deleted: false,
-    };
-    finance.push(financeRecord);
-    writeData('finance_records', finance);
+    await prisma.patient.updateMany({
+      where: { id: patientId || appointment.patientId },
+      data: { balance: { decrement: payAmount }, updatedAt: new Date() },
+    });
 
-    res.status(201).json({ success: true, message: 'Payment created', data: { payment: newPayment, appointment } });
+    await prisma.financeRecord.create({
+      data: {
+        id: `fin_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+        patientId: newPayment.patientId,
+        type: "payment",
+        amount: newPayment.amount,
+        date: newPayment.date,
+        description: `Payment ${newPayment.id} for appointment ${appointmentId}`,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        deleted: false,
+      },
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Payment created",
+      data: { payment: newPayment, appointment: updatedAppointment },
+    });
   } catch (error) {
-    console.error('[CREATE PAYMENT] Error:', error);
-    res.status(500).json({ success: false, message: 'Error creating payment', error: error instanceof Error ? error.message : error });
+    console.error("[CREATE PAYMENT] Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error creating payment",
+      error: error instanceof Error ? error.message : error,
+    });
   }
 };
 
-export const getPaymentsByAppointment = (req: Request, res: Response<ApiResponse<Payment[]>>) => {
+export const getPaymentsByAppointment = async (
+  req: Request,
+  res: Response<ApiResponse<Payment[]>>
+) => {
   try {
-    const { id } = req.params; // appointment id
-    const payments = readData<Payment>(COLLECTION);
-    const filtered = payments.filter(p => !p.deleted && p.appointmentId === id);
-    res.json({ success: true, data: filtered });
+    const payments = await prisma.payment.findMany({
+      where: { deleted: false, appointmentId: req.params.id },
+      orderBy: { createdAt: "desc" },
+    });
+    res.json({ success: true, data: payments.map(toPayment) });
   } catch (error) {
-    console.error('[GET PAYMENTS] Error:', error);
-    res.status(500).json({ success: false, message: 'Error fetching payments', error: error instanceof Error ? error.message : error });
+    console.error("[GET PAYMENTS] Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error fetching payments",
+      error: error instanceof Error ? error.message : error,
+    });
   }
 };
 
-export const getPaymentsByPatient = (req: Request, res: Response<ApiResponse<Payment[]>>) => {
+export const getPaymentsByPatient = async (
+  req: Request,
+  res: Response<ApiResponse<Payment[]>>
+) => {
   try {
-    const { id } = req.params; // patient id
-    const payments = readData<Payment>(COLLECTION);
-    const filtered = payments.filter(p => !p.deleted && p.patientId === id);
-    res.json({ success: true, data: filtered });
+    const payments = await prisma.payment.findMany({
+      where: { deleted: false, patientId: req.params.id },
+      orderBy: { createdAt: "desc" },
+    });
+    res.json({ success: true, data: payments.map(toPayment) });
   } catch (error) {
-    console.error('[GET PAYMENTS PATIENT] Error:', error);
-    res.status(500).json({ success: false, message: 'Error fetching payments', error: error instanceof Error ? error.message : error });
+    console.error("[GET PAYMENTS PATIENT] Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error fetching payments",
+      error: error instanceof Error ? error.message : error,
+    });
   }
 };
 
-export const updatePayment = (req: Request, res: Response<ApiResponse<any>>) => {
+export const updatePayment = async (req: Request, res: Response<ApiResponse<any>>) => {
   try {
     const { id } = req.params;
     const { amount, method, date, transactionId, notes, appointmentId } = req.body;
 
-    if (!id) {
-      return res.status(400).json({ success: false, message: 'Payment ID is required' });
+    const oldPayment = toPayment(await prisma.payment.findUnique({ where: { id } }));
+    if (!oldPayment || oldPayment.deleted) {
+      return res.status(404).json({ success: false, message: "Payment not found" });
     }
 
-    const payments = readData<Payment>(COLLECTION);
-    const paymentIndex = payments.findIndex(p => p.id === id && !p.deleted);
+    const updatedPayment = toPayment(
+      await prisma.payment.update({
+        where: { id },
+        data: {
+          amount: amount !== undefined ? Number(amount) : oldPayment.amount,
+          method: method || oldPayment.method,
+          date: date || oldPayment.date,
+          transactionId: transactionId || oldPayment.transactionId,
+          notes: notes !== undefined ? notes : oldPayment.notes,
+          appointmentId: appointmentId || oldPayment.appointmentId,
+          updatedAt: new Date(),
+        },
+      })
+    );
 
-    if (paymentIndex === -1) {
-      return res.status(404).json({ success: false, message: 'Payment not found' });
-    }
+    const amountDiff = updatedPayment.amount - oldPayment.amount;
+    if (amountDiff !== 0) {
+      const appointment = toAppointment(
+        await prisma.appointment.findUnique({ where: { id: oldPayment.appointmentId } })
+      );
+      if (appointment) {
+        const oldAppointment = { ...appointment };
+        const totalPaid = Math.max(0, (appointment.totalPaid || 0) + amountDiff);
+        const balance = (appointment.price || 0) - (appointment.discount || 0) - totalPaid;
+        const oldPaymentStatus = appointment.paymentStatus || "unpaid";
+        const newPaymentStatus = paymentStatusFor(totalPaid, balance);
+        const savedAppointment = toAppointment(
+          await prisma.appointment.update({
+            where: { id: oldPayment.appointmentId },
+            data: { totalPaid, balance, paymentStatus: newPaymentStatus, updatedAt: new Date() },
+          })
+        );
 
-    const oldPayment = payments[paymentIndex];
-    const oldAmount = oldPayment.amount;
-    const oldAppointmentId = oldPayment.appointmentId;
-
-    // Update payment
-    const updatedPayment: Payment = {
-      ...oldPayment,
-      amount: amount !== undefined ? Number(amount) : oldPayment.amount,
-      method: method || oldPayment.method,
-      date: date || oldPayment.date,
-      transactionId: transactionId || oldPayment.transactionId,
-      notes: notes !== undefined ? notes : oldPayment.notes,
-      appointmentId: appointmentId || oldPayment.appointmentId,
-      updatedAt: new Date(),
-    };
-
-    payments[paymentIndex] = updatedPayment;
-    writeData(COLLECTION, payments);
-
-    // Update appointment aggregates if amount changed
-    if (amount !== undefined && Number(amount) !== oldAmount) {
-      const appointments = readAppointmentsWithLifecycle();
-      const aptIndex = appointments.findIndex(a => a.id === oldAppointmentId);
-      if (aptIndex !== -1) {
-        const apt = appointments[aptIndex];
-        const oldAppointment = { ...apt };
-        const amountDiff = Number(amount) - oldAmount;
-        const oldPaymentStatus = apt.paymentStatus || 'unpaid';
-        
-        apt.totalPaid = (apt.totalPaid || 0) + amountDiff;
-        apt.balance = (apt.balance != null ? apt.balance : (apt.price || 0)) - amountDiff;
-        if (apt.balance <= 0) apt.paymentStatus = 'paid';
-        else if (apt.totalPaid === 0) apt.paymentStatus = 'unpaid';
-        else apt.paymentStatus = apt.balance < (apt.price || 0) ? 'half-paid' : 'unpaid';
-        apt.updatedAt = new Date();
-        appointments[aptIndex] = apt;
-        writeData('appointments', appointments);
-
-        // LOG THE EDIT: Archive previous state as a dedicated appointment log
-        const changedBy = (req as any).user?.id || (req as any).user?.username || 'admin';
-        const changedByName = (req as any).user?.name || (req as any).user?.username || (changedBy === 'admin' ? 'Admin' : changedBy);
-        
-        createAppointmentLog(
-          oldAppointmentId || '', 
-          oldAppointment, 
-          apt, 
-          changedBy, 
-          changedByName, 
-          'payment', 
-          amountDiff, 
+        const changedBy = (req as any).user?.id || (req as any).user?.username || "admin";
+        const changedByName =
+          (req as any).user?.name ||
+          (req as any).user?.username ||
+          (changedBy === "admin" ? "Admin" : changedBy);
+        await createAppointmentLog(
+          oldPayment.appointmentId,
+          oldAppointment,
+          savedAppointment,
+          changedBy,
+          changedByName,
+          "payment",
+          amountDiff,
           notes
         );
 
-        // Notifications for update
-        const recipients = resolveRecipients(apt);
-        const appointmentData = {
-          patientName: apt.patientName,
-          date: apt.date,
-          time: apt.time,
-          type: getAppointmentTypeName(apt.type, apt.customType),
-          doctor: apt.doctor
-        };
-
+        const recipients = await resolveRecipients(savedAppointment);
         if (amountDiff > 0) {
-          notifyPaymentReceived(apt.id || '', amountDiff, recipients, appointmentData, id);
+          await notifyPaymentReceived(oldPayment.appointmentId, amountDiff, recipients, appointmentData(savedAppointment), id);
         }
-
-        if (apt.paymentStatus !== oldPaymentStatus) {
-          notifyStatusChange(apt.id || '', 'payment', oldPaymentStatus, apt.paymentStatus as string, recipients, appointmentData);
+        if (savedAppointment.paymentStatus !== oldPaymentStatus) {
+          await notifyStatusChange(
+            oldPayment.appointmentId,
+            "payment",
+            oldPaymentStatus,
+            savedAppointment.paymentStatus,
+            recipients,
+            appointmentData(savedAppointment)
+          );
         }
       }
 
-      // Update patient balance
-      const patients = readData<Patient>('patients');
-      const pIdx = patients.findIndex(p => p.id === oldPayment.patientId);
-      if (pIdx !== -1) {
-        const pat = patients[pIdx];
-        (pat as any).balance = ((pat as any).balance || 0) - (Number(amount) - oldAmount);
-        pat.updatedAt = new Date();
-        patients[pIdx] = pat;
-        writeData('patients', patients);
-      }
+      await prisma.patient.updateMany({
+        where: { id: oldPayment.patientId || undefined },
+        data: { balance: { decrement: amountDiff }, updatedAt: new Date() },
+      });
 
-      // Update finance record
-      const finance = readData<any>('finance_records');
-      const finIndex = finance.findIndex((f: any) => f.description?.includes(`Payment ${id}`));
-      if (finIndex !== -1) {
-        finance[finIndex].amount = Number(amount);
-        finance[finIndex].updatedAt = new Date();
-        writeData('finance_records', finance);
-      }
+      await prisma.financeRecord.updateMany({
+        where: { description: { contains: `Payment ${id}` } },
+        data: { amount: updatedPayment.amount, updatedAt: new Date() },
+      });
     }
 
-    // If appointmentId changed, update both old and new appointments
-    if (appointmentId && appointmentId !== oldAppointmentId) {
-      const appointments = readAppointmentsWithLifecycle();
-      
-      // Remove amount from old appointment
-      const oldAptIndex = appointments.findIndex(a => a.id === oldAppointmentId);
-      if (oldAptIndex !== -1) {
-        const oldApt = appointments[oldAptIndex];
-        oldApt.totalPaid = Math.max(0, (oldApt.totalPaid || 0) - oldAmount);
-        oldApt.balance = (oldApt.balance != null ? oldApt.balance : (oldApt.price || 0)) + oldAmount;
-        if (oldApt.balance <= 0) oldApt.paymentStatus = 'paid';
-        else if (oldApt.totalPaid === 0) oldApt.paymentStatus = 'unpaid';
-        else oldApt.paymentStatus = oldApt.balance < (oldApt.price || 0) ? 'half-paid' : 'unpaid';
-        oldApt.updatedAt = new Date();
-        appointments[oldAptIndex] = oldApt;
-      }
-      
-      // Add amount to new appointment
-      const newAptIndex = appointments.findIndex(a => a.id === appointmentId);
-      if (newAptIndex !== -1) {
-        const newApt = appointments[newAptIndex];
-        newApt.totalPaid = (newApt.totalPaid || 0) + (amount || oldAmount);
-        newApt.balance = (newApt.balance != null ? newApt.balance : (newApt.price || 0)) - (amount || oldAmount);
-        if (newApt.balance <= 0) newApt.paymentStatus = 'paid';
-        else if (newApt.totalPaid === 0) newApt.paymentStatus = 'unpaid';
-        else newApt.paymentStatus = newApt.balance < (newApt.price || 0) ? 'half-paid' : 'unpaid';
-        newApt.updatedAt = new Date();
-        appointments[newAptIndex] = newApt;
-      }
-      
-      writeData('appointments', appointments);
-    }
-
-    res.json({ success: true, message: 'Payment updated', data: { payment: updatedPayment } });
+    res.json({ success: true, message: "Payment updated", data: { payment: updatedPayment } });
   } catch (error) {
-    console.error('[UPDATE PAYMENT] Error:', error);
-    res.status(500).json({ success: false, message: 'Error updating payment', error: error instanceof Error ? error.message : error });
+    console.error("[UPDATE PAYMENT] Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error updating payment",
+      error: error instanceof Error ? error.message : error,
+    });
   }
 };
 
-export const deletePayment = (req: Request, res: Response<ApiResponse<any>>) => {
+export const deletePayment = async (req: Request, res: Response<ApiResponse<any>>) => {
   try {
     const { id } = req.params;
-    console.log("[DELETE PAYMENT] Request received for ID:", id);
-
-    if (!id) {
-      console.log("[DELETE PAYMENT] Missing ID");
-      return res.status(400).json({ success: false, message: 'Payment ID is required' });
+    const payment = toPayment(await prisma.payment.findUnique({ where: { id } }));
+    if (!payment || payment.deleted) {
+      return res.status(404).json({ success: false, message: "Payment not found" });
     }
 
-    const payments = readData<Payment>(COLLECTION);
-    console.log("[DELETE PAYMENT] Total payments in database:", payments.length);
-    
-    const paymentIndex = payments.findIndex(p => p.id === id && !p.deleted);
-    console.log("[DELETE PAYMENT] Payment index found:", paymentIndex);
-
-    if (paymentIndex === -1) {
-      console.log("[DELETE PAYMENT] Payment not found with ID:", id);
-      return res.status(404).json({ success: false, message: 'Payment not found' });
-    }
-
-    const deletedPayment = payments[paymentIndex];
-    console.log("[DELETE PAYMENT] Found payment:", {
-      id: deletedPayment.id,
-      amount: deletedPayment.amount,
-      appointmentId: deletedPayment.appointmentId,
-      patientId: deletedPayment.patientId
+    await prisma.payment.update({
+      where: { id },
+      data: { deleted: true, updatedAt: new Date() },
     });
-    
-    const paymentAmount = deletedPayment.amount;
-    const appointmentId = deletedPayment.appointmentId;
 
-    // Mark payment as deleted (soft delete)
-    deletedPayment.deleted = true;
-    deletedPayment.updatedAt = new Date();
-    payments[paymentIndex] = deletedPayment;
-    writeData(COLLECTION, payments);
-    console.log("[DELETE PAYMENT] Payment marked as deleted");
-
-    // Update appointment aggregates - remove the payment amount
-    const appointments = readAppointmentsWithLifecycle();
-    const aptIndex = appointments.findIndex(a => a.id === appointmentId);
-    console.log("[DELETE PAYMENT] Appointment index:", aptIndex);
-    
-    if (aptIndex !== -1) {
-      const apt = appointments[aptIndex];
-      const oldAppointment = { ...apt };
-      console.log("[DELETE PAYMENT] Before update - totalPaid:", apt.totalPaid, "balance:", apt.balance);
-      
-      const oldPaymentStatus = apt.paymentStatus || 'unpaid';
-      apt.totalPaid = Math.max(0, (apt.totalPaid || 0) - paymentAmount);
-      apt.balance = (apt.balance != null ? apt.balance : (apt.price || 0)) + paymentAmount;
-      if (apt.balance <= 0) apt.paymentStatus = 'paid';
-      else if (apt.totalPaid === 0) apt.paymentStatus = 'unpaid';
-      else apt.paymentStatus = apt.balance < (apt.price || 0) ? 'half-paid' : 'unpaid';
-      apt.updatedAt = new Date();
-      appointments[aptIndex] = apt;
-      
-      console.log("[DELETE PAYMENT] After update - totalPaid:", apt.totalPaid, "balance:", apt.balance, "status:", apt.paymentStatus);
-      writeData('appointments', appointments);
-
-      // LOG THE EDIT: Archive previous state as a dedicated appointment log
-      const changedBy = (req as any).user?.id || (req as any).user?.username || 'admin';
-      const changedByName = (req as any).user?.name || (req as any).user?.username || (changedBy === 'admin' ? 'Admin' : changedBy);
-      
-      createAppointmentLog(
-        appointmentId || '', 
-        oldAppointment, 
-        apt, 
-        changedBy, 
-        changedByName, 
-        'payment', 
-        -paymentAmount, 
-        'Payment deleted'
+    const appointment = toAppointment(
+      await prisma.appointment.findUnique({ where: { id: payment.appointmentId } })
+    );
+    if (appointment) {
+      const oldAppointment = { ...appointment };
+      const totalPaid = Math.max(0, (appointment.totalPaid || 0) - payment.amount);
+      const balance = (appointment.price || 0) - (appointment.discount || 0) - totalPaid;
+      const oldPaymentStatus = appointment.paymentStatus || "unpaid";
+      const newPaymentStatus = paymentStatusFor(totalPaid, balance);
+      const savedAppointment = toAppointment(
+        await prisma.appointment.update({
+          where: { id: payment.appointmentId },
+          data: { totalPaid, balance, paymentStatus: newPaymentStatus, updatedAt: new Date() },
+        })
       );
 
-      // Notify if status changed
-      if (apt.paymentStatus !== oldPaymentStatus) {
-        const recipients = resolveRecipients(apt);
-        notifyStatusChange(
-          apt.id || '', 
-          'payment', 
-          oldPaymentStatus, 
-          apt.paymentStatus as string, 
-          recipients, 
-          {
-            patientName: apt.patientName,
-            date: apt.date,
-            time: apt.time,
-            type: getAppointmentTypeName(apt.type, apt.customType),
-            doctor: apt.doctor
-          }
+      const changedBy = (req as any).user?.id || (req as any).user?.username || "admin";
+      const changedByName =
+        (req as any).user?.name ||
+        (req as any).user?.username ||
+        (changedBy === "admin" ? "Admin" : changedBy);
+      await createAppointmentLog(
+        payment.appointmentId,
+        oldAppointment,
+        savedAppointment,
+        changedBy,
+        changedByName,
+        "payment",
+        -payment.amount,
+        "Payment deleted"
+      );
+
+      if (savedAppointment.paymentStatus !== oldPaymentStatus) {
+        await notifyStatusChange(
+          payment.appointmentId,
+          "payment",
+          oldPaymentStatus,
+          savedAppointment.paymentStatus,
+          await resolveRecipients(savedAppointment),
+          appointmentData(savedAppointment)
         );
       }
     }
 
-    // Update patient balance
-    const patients = readData<Patient>('patients');
-    const pIdx = patients.findIndex(p => p.id === deletedPayment.patientId);
-    console.log("[DELETE PAYMENT] Patient index:", pIdx);
-    
-    if (pIdx !== -1) {
-      const pat = patients[pIdx];
-      (pat as any).balance = ((pat as any).balance || 0) + paymentAmount;
-      pat.updatedAt = new Date();
-      patients[pIdx] = pat;
-      console.log("[DELETE PAYMENT] Patient balance updated to:", (pat as any).balance);
-      writeData('patients', patients);
-    }
+    await prisma.patient.updateMany({
+      where: { id: payment.patientId || undefined },
+      data: { balance: { increment: payment.amount }, updatedAt: new Date() },
+    });
 
-    // Mark finance record as deleted
-    const finance = readData<any>('finance_records');
-    const finIndex = finance.findIndex((f: any) => f.description?.includes(`Payment ${id}`));
-    console.log("[DELETE PAYMENT] Finance record index:", finIndex);
-    
-    if (finIndex !== -1) {
-      finance[finIndex].deleted = true;
-      finance[finIndex].updatedAt = new Date();
-      writeData('finance_records', finance);
-      console.log("[DELETE PAYMENT] Finance record marked as deleted");
-    }
+    await prisma.financeRecord.updateMany({
+      where: { description: { contains: `Payment ${id}` } },
+      data: { deleted: true, updatedAt: new Date() },
+    });
 
-    console.log("[DELETE PAYMENT] Deletion successful");
-    res.json({ success: true, message: 'Payment deleted successfully', data: { payment: deletedPayment } });
+    res.json({
+      success: true,
+      message: "Payment deleted successfully",
+      data: { payment: { ...payment, deleted: true } },
+    });
   } catch (error) {
-    console.error('[DELETE PAYMENT] Error:', error);
-    res.status(500).json({ success: false, message: 'Error deleting payment', error: error instanceof Error ? error.message : error });
+    console.error("[DELETE PAYMENT] Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error deleting payment",
+      error: error instanceof Error ? error.message : error,
+    });
   }
 };

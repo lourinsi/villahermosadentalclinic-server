@@ -23,11 +23,18 @@ import {
 
 // Sample data for seeding
 let authToken: string | null = null;
+const API_BASE_URL = (
+  process.env.SEED_API_BASE_URL ||
+  process.env.API_BASE_URL ||
+  `http://${process.env.API_HOST || "localhost"}:${process.env.PORT || "3001"}`
+).replace(/\/+$/, "");
+
+const apiUrl = (path: string) => `${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`;
 
 async function loginAsAdmin() {
   try {
     console.log("🔐 Logging in as admin...");
-    const response = await fetch("http://localhost:3001/api/auth/login", {
+    const response = await fetch(apiUrl("/api/auth/login"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username: "admin", password: "password" }),
@@ -599,9 +606,8 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
       updatedAt: reservedAptCreatedAt,
     });
 
-    // === SCENARIO 4: Tentative appointment (pending decision) ===
-    // Patient tentatively booked, payment decision pending
-    const tentativeAptCreatedAt = new Date("2026-04-22T09:15:00.000Z");
+    // === SCENARIO 4: Reserved appointment awaiting payment ===
+    const reservedUnpaidAptCreatedAt = new Date("2026-04-22T09:15:00.000Z");
     generatedAppointments.push({
       patientId: testPatient.id || "",
       patientName: testPatient.name,
@@ -611,13 +617,13 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
       duration: 90,
       doctor: testDoctorName,
       price: 5000,
-      status: APPOINTMENT_STATUSES.find(s => s.value === "tentative")?.value || "tentative",
+      status: APPOINTMENT_STATUSES.find(s => s.value === "reserved")?.value || "reserved",
       paymentStatus: "unpaid",
       balance: 5000,
       totalPaid: 0,
-      notes: "Tentative appointment awaiting patient payment confirmation.",
-      createdAt: tentativeAptCreatedAt,
-      updatedAt: tentativeAptCreatedAt,
+      notes: "Reserved appointment awaiting patient payment confirmation.",
+      createdAt: reservedUnpaidAptCreatedAt,
+      updatedAt: reservedUnpaidAptCreatedAt,
     });
 
     // === SCENARIO 5: Completed appointment (fully paid) ===
@@ -658,7 +664,7 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
     start.setHours(hours, minutes, 0, 0);
     const end = new Date(start.getTime() + (apt.duration || 30) * 60000);
     
-    if (apt.status !== "cancelled" && apt.status !== "pending") {
+    if (apt.status !== "cancelled" && apt.status !== "add-to-cart") {
       doctorSchedule[apt.doctor].push({ date: apt.date, start, end });
     }
   });
@@ -678,7 +684,7 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
     if (isPast) {
       statusValue = Math.random() > 0.1 ? "completed" : "scheduled";
     } else {
-      const statusOptions = ["scheduled", "reserved", "pending"];
+      const statusOptions = ["scheduled", "reserved", "add-to-cart"];
       statusValue = getRandomElement(statusOptions);
     }
 
@@ -714,7 +720,7 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
       );
     }
 
-    if (hasConflict && statusValue !== "pending") {
+    if (hasConflict && statusValue !== "add-to-cart") {
       // Skip this appointment to avoid conflict
       continue;
     }
@@ -746,7 +752,7 @@ function generateAppointments(patientsList: Patient[], doctorsList: string[], co
     };
 
     // Track non-cancelled appointments in doctor schedule
-    if (statusValue !== "cancelled" && statusValue !== "pending") {
+    if (statusValue !== "cancelled" && statusValue !== "add-to-cart") {
       if (!doctorSchedule[doctor]) {
         doctorSchedule[doctor] = [];
       }
@@ -964,7 +970,7 @@ async function seedDatabase() {
     console.log("📤 Adding patients to database via API...");
     for (const patientData of generatedPatientsData) {
       try {
-        const response = await fetchWithAuth("http://localhost:3001/api/patients", {
+        const response = await fetchWithAuth(apiUrl("/api/patients"), {
           method: "POST",
           body: JSON.stringify(patientData),
         });
@@ -1007,7 +1013,7 @@ async function seedDatabase() {
     console.log(`📤 Adding ${dependentsToCreate.length} dependents to database via API...`);
     for (const dependentData of dependentsToCreate) {
       try {
-        const response = await fetchWithAuth("http://localhost:3001/api/patients", {
+        const response = await fetchWithAuth(apiUrl("/api/patients"), {
           method: "POST",
           body: JSON.stringify(dependentData),
         });
@@ -1031,7 +1037,7 @@ async function seedDatabase() {
     console.log("📤 Adding staff members to database via API...");
     for (const staffData of staffMembersData) {
       try {
-        const response = await fetchWithAuth("http://localhost:3001/api/staff", {
+        const response = await fetchWithAuth(apiUrl("/api/staff"), {
           method: "POST",
           body: JSON.stringify(staffData),
         });
@@ -1059,7 +1065,7 @@ async function seedDatabase() {
     console.log("📤 Adding appointments to database via API...");
     for (const appointmentData of generatedAppointmentsData) {
       try {
-        const response = await fetchWithAuth("http://localhost:3001/api/appointments", {
+        const response = await fetchWithAuth(apiUrl("/api/appointments"), {
           method: "POST",
           headers: {
             "x-seeding-key": "seeding-mode",
@@ -1092,7 +1098,7 @@ async function seedDatabase() {
     console.log("📤 Adding finance records to database via API...");
     for (const record of generatedFinanceRecords) {
       try {
-        const response = await fetchWithAuth("http://localhost:3001/api/finance", {
+        const response = await fetchWithAuth(apiUrl("/api/finance"), {
           method: "POST",
           body: JSON.stringify({ ...record, isSeeding: true }),
         });
@@ -1110,7 +1116,7 @@ async function seedDatabase() {
     console.log("📤 Adding inventory items to database via API...");
     for (const itemData of inventoryItemsData) {
       try {
-        const response = await fetchWithAuth("http://localhost:3001/api/inventory", {
+        const response = await fetchWithAuth(apiUrl("/api/inventory"), {
           method: "POST",
           body: JSON.stringify(itemData),
         });
@@ -1128,7 +1134,7 @@ async function seedDatabase() {
     console.log("📤 Adding payment methods to database via API...");
     for (const paymentMethodData of paymentMethodsData) {
       try {
-        const response = await fetchWithAuth("http://localhost:3001/api/payment-methods", {
+        const response = await fetchWithAuth(apiUrl("/api/payment-methods"), {
           method: "POST",
           body: JSON.stringify(paymentMethodData),
         });
@@ -1148,7 +1154,7 @@ async function seedDatabase() {
     console.log(`📤 Adding ${notificationsToCreate.length} notifications to database via API...`);
     for (const notificationData of notificationsToCreate) {
       try {
-        const response = await fetchWithAuth("http://localhost:3001/api/notifications", {
+        const response = await fetchWithAuth(apiUrl("/api/notifications"), {
           method: "POST",
           headers: {
             "x-seeding-key": "seeding-mode",
@@ -1187,7 +1193,7 @@ async function seedDatabase() {
 // Check if server is running
 async function checkServerHealth() {
   try {
-    const response = await fetch("http://localhost:3001/api/health");
+    const response = await fetch(apiUrl("/api/health"));
     if (response.ok) {
       return true;
     }

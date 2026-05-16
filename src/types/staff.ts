@@ -22,7 +22,7 @@ export interface Staff {
 
 export interface StaffFinancialRecord {
   id: string;
-  staffId: string; // Also change staffId to string for consistency
+  staffId: string;
   staffName: string;
   type: string;
   amount: number;
@@ -33,8 +33,11 @@ export interface StaffFinancialRecord {
 }
 
 export interface Attendance {
-  staffId: number;
+  id?: string;
+  staffId: string;
   staffName: string;
+  date?: string;
+  status?: string;
   hoursWorked: number;
   daysPresent: number;
   daysAbsent: number;

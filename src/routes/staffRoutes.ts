@@ -11,6 +11,7 @@ import {
   approveStaffFinancialRecord,
   deleteStaffFinancialRecord,
   getAttendance,
+  upsertAttendance,
   getPublicDoctors,
 } from "../controllers/staffController";
 import { requireAuth } from "../middleware/authMiddleware";
@@ -46,6 +47,9 @@ router.delete("/financials/:id", deleteStaffFinancialRecord);
 
 // GET - Get staff attendance records - MORE SPECIFIC ROUTE FIRST
 router.get("/attendance", getAttendance);
+
+// PUT - Create or update a staff member's monthly attendance summary
+router.put("/attendance/:staffId", upsertAttendance);
 
 // GET - Get staff member by ID - GENERAL ROUTE LAST
 router.get("/:id", getStaffById);

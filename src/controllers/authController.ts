@@ -1,37 +1,25 @@
 import express from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { readData, writeData } from "../utils/storage";
-import { Staff } from "../types/staff";
-import { Patient } from "../types/patient";
+import { prisma } from "../lib/prisma";
 
-// Hardcoded admin credentials (in production, use a database)
 const ADMIN_USERNAME = "admin";
-// Simple plaintext password for now - we'll hash it on startup
 const ADMIN_PASSWORD = "password";
 let ADMIN_PASSWORD_HASH: string;
 
-// Hardcoded doctor credentials for testing
 const TEST_DOCTOR_USERNAME = "doctor";
 const TEST_DOCTOR_PASSWORD = "password";
 let TEST_DOCTOR_PASSWORD_HASH: string;
 
-// Default password for doctors (in production, each doctor should have their own password)
 const DEFAULT_DOCTOR_PASSWORD = "doctor123";
 let DOCTOR_PASSWORD_HASH: string;
 
-// Default password for patients
 const DEFAULT_PATIENT_PASSWORD = "villahermosa123";
 let PATIENT_PASSWORD_HASH: string;
 
 const JWT_SECRET = process.env.JWT_SECRET || "your-super-secret-jwt-key-change-this-in-production";
 const JWT_EXPIRY = "24h";
-const STAFF_COLLECTION = "staff";
-const PATIENT_COLLECTION = "patients";
 
-/**
- * Initialize auth - hash the passwords on startup
- */
 export const initializeAuth = async () => {
   try {
     ADMIN_PASSWORD_HASH = await bcrypt.hash(ADMIN_PASSWORD, 10);
@@ -60,10 +48,15 @@ export const register = async (
       return;
     }
 
-    const patients = readData<Patient>(PATIENT_COLLECTION);
-    const existingPatient = patients.find(
-      (p) => (email && p.email === email) || (phone && p.phone === phone)
-    );
+    const existingPatient = await prisma.patient.findFirst({
+      where: {
+        deleted: false,
+        OR: [
+          ...(email ? [{ email }] : []),
+          ...(phone ? [{ phone }] : []),
+        ],
+      },
+    });
 
     if (existingPatient) {
       res.status(409).json({
@@ -73,24 +66,22 @@ export const register = async (
       return;
     }
 
-    const defaultPassword = password || "villahermosa123";
     const passwordHash = password ? await bcrypt.hash(password, 10) : PATIENT_PASSWORD_HASH;
-
     const newPatientId = `PATIENT-${Date.now()}`;
-    const newPatient: Patient = {
-      id: newPatientId,
-      name: name || email || phone,
-      email: email || "",
-      phone: phone || "",
-      password: passwordHash,
-      parentId: newPatientId, // Point to itself as primary
-      isPrimary: true,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-
-    patients.push(newPatient);
-    writeData<Patient>(PATIENT_COLLECTION, patients);
+    const newPatient = await prisma.patient.create({
+      data: {
+        id: newPatientId,
+        name: name || email || phone,
+        email: email || "",
+        phone: phone || "",
+        password: passwordHash,
+        parentId: null,
+        isPrimary: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        deleted: false,
+      },
+    });
 
     res.status(201).json({
       success: true,
@@ -111,11 +102,26 @@ export const register = async (
   }
 };
 
+const setAuthCookie = (res: express.Response, token: string) => {
+  res.cookie("authToken", token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    maxAge: 24 * 60 * 60 * 1000,
+    path: "/",
+  });
+};
 
-/**
- * Login endpoint - validates credentials and returns JWT token
- * Supports both admin and doctor logins
- */
+const signToken = (payload: Record<string, unknown>) =>
+  jwt.sign(
+    {
+      ...payload,
+      iat: Math.floor(Date.now() / 1000),
+    },
+    JWT_SECRET,
+    { expiresIn: JWT_EXPIRY }
+  );
+
 export const login = async (
   req: express.Request,
   res: express.Response
@@ -123,9 +129,6 @@ export const login = async (
   try {
     const { username, password } = req.body;
 
-    console.log("[AUTH] Login attempt for username:", username);
-
-    // Validate input
     if (!username || !password) {
       res.status(400).json({
         success: false,
@@ -134,71 +137,39 @@ export const login = async (
       return;
     }
 
-    // First, check if it's the admin user
     if (username === ADMIN_USERNAME) {
       const isPasswordValid = await bcrypt.compare(password, ADMIN_PASSWORD_HASH);
-
       if (!isPasswordValid) {
-        console.log("[AUTH] Invalid password for admin");
-        res.status(401).json({
-          success: false,
-          message: "Invalid credentials",
-        });
+        res.status(401).json({ success: false, message: "Invalid credentials" });
         return;
       }
 
-      // Generate JWT token for admin
-      const token = jwt.sign(
-        {
-          username: ADMIN_USERNAME,
-          name: "Admin",
-          role: "admin",
-          iat: Math.floor(Date.now() / 1000),
-        },
-        JWT_SECRET,
-        { expiresIn: JWT_EXPIRY }
-      );
-
-      console.log("[AUTH] Admin login successful");
-
-      res.cookie("authToken", token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "strict",
-        maxAge: 24 * 60 * 60 * 1000,
-        path: "/",
+      const token = signToken({
+        username: ADMIN_USERNAME,
+        name: "Admin",
+        role: "admin",
       });
 
+      setAuthCookie(res, token);
       res.status(200).json({
         success: true,
         message: "Login successful",
         token,
-        user: {
-          username: ADMIN_USERNAME,
-          role: "admin",
-        },
+        user: { username: ADMIN_USERNAME, role: "admin" },
       });
       return;
     }
 
-    // Check if it's the test doctor user
     if (username.toLowerCase() === TEST_DOCTOR_USERNAME) {
       const isPasswordValid = await bcrypt.compare(password, TEST_DOCTOR_PASSWORD_HASH);
-
       if (!isPasswordValid) {
-        console.log("[AUTH] Invalid password for test doctor");
-        res.status(401).json({
-          success: false,
-          message: "Invalid credentials",
-        });
+        res.status(401).json({ success: false, message: "Invalid credentials" });
         return;
       }
 
-      // Link test doctor to Dr. Test Doctor
-      const staffMembers = readData<Staff>(STAFF_COLLECTION);
-      const doctor = staffMembers.find(
-        (staff) => staff.name === "Dr. Test Doctor" && !staff.deleted
-      );
+      const doctor = await prisma.staff.findFirst({
+        where: { name: "Dr. Test Doctor", deleted: false },
+      });
 
       if (!doctor) {
         res.status(404).json({
@@ -208,176 +179,96 @@ export const login = async (
         return;
       }
 
-      // Generate JWT token for test doctor
-      const token = jwt.sign(
-        {
-          username: doctor.name,
-          name: doctor.name,
-          role: "doctor",
-          staffId: doctor.id,
-          iat: Math.floor(Date.now() / 1000),
-        },
-        JWT_SECRET,
-        { expiresIn: JWT_EXPIRY }
-      );
-
-      console.log("[AUTH] Test doctor login successful");
-
-      res.cookie("authToken", token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "strict",
-        maxAge: 24 * 60 * 60 * 1000,
-        path: "/",
+      const token = signToken({
+        username: doctor.name,
+        name: doctor.name,
+        role: "doctor",
+        staffId: doctor.id,
       });
 
+      setAuthCookie(res, token);
       res.status(200).json({
         success: true,
         message: "Login successful",
         token,
-        user: {
-          username: doctor.name,
-          role: "doctor",
-          staffId: doctor.id,
-        },
+        user: { username: doctor.name, role: "doctor", staffId: doctor.id },
       });
       return;
     }
 
-    // Check if it's a doctor (staff member with role containing "Dentist" or "Doctor")
-    const staffMembers = readData<Staff>(STAFF_COLLECTION);
-    console.log(`[AUTH] Checking ${staffMembers.length} staff members for doctor login`);
-    
-    const doctor = staffMembers.find(
-      (staff) => {
-        const nameMatch = staff.name.toLowerCase() === username.toLowerCase();
-        const emailMatch = staff.email?.toLowerCase() === username.toLowerCase();
-        const isDoctorRole = staff.role === "Doctor" || staff.role.toLowerCase().includes("dentist");
-        const notDeleted = !staff.deleted;
-        
-        if ((nameMatch || emailMatch) && isDoctorRole && notDeleted) {
-          console.log(`[AUTH] Found matching doctor: ${staff.name} (${staff.role})`);
-          return true;
-        }
-        return false;
-      }
-    );
+    const staffMembers = await prisma.staff.findMany({ where: { deleted: false } });
+    const usernameLower = String(username).toLowerCase();
+    const doctor = staffMembers.find((staff) => {
+      const nameMatch = staff.name.toLowerCase() === usernameLower;
+      const emailMatch = staff.email?.toLowerCase() === usernameLower;
+      const role = staff.role.toLowerCase();
+      const isDoctorRole = staff.role === "Doctor" || role.includes("dentist");
+      return (nameMatch || emailMatch) && isDoctorRole;
+    });
 
     if (doctor) {
-      // For doctors, check against their stored password or default password
-      const isPasswordValid = doctor.password 
+      const isPasswordValid = doctor.password
         ? await bcrypt.compare(password, doctor.password)
         : await bcrypt.compare(password, DOCTOR_PASSWORD_HASH);
 
       if (!isPasswordValid) {
-        console.log("[AUTH] Invalid password for doctor:", username);
-        res.status(401).json({
-          success: false,
-          message: "Invalid credentials",
-        });
+        res.status(401).json({ success: false, message: "Invalid credentials" });
         return;
       }
 
-      // Generate JWT token for doctor
-      const token = jwt.sign(
-        {
-          username: doctor.name,
-          name: doctor.name,
-          role: "doctor",
-          staffId: doctor.id,
-          iat: Math.floor(Date.now() / 1000),
-        },
-        JWT_SECRET,
-        { expiresIn: JWT_EXPIRY }
-      );
-
-      console.log("[AUTH] Doctor login successful:", doctor.name);
-
-      res.cookie("authToken", token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "strict",
-        maxAge: 24 * 60 * 60 * 1000,
-        path: "/",
+      const token = signToken({
+        username: doctor.name,
+        name: doctor.name,
+        role: "doctor",
+        staffId: doctor.id,
       });
 
+      setAuthCookie(res, token);
       res.status(200).json({
         success: true,
         message: "Login successful",
         token,
-        user: {
-          username: doctor.name,
-          role: "doctor",
-          staffId: doctor.id,
-        },
+        user: { username: doctor.name, role: "doctor", staffId: doctor.id },
       });
       return;
     }
 
-    // Check if it's a patient
-    const patients = readData<Patient>(PATIENT_COLLECTION);
+    const patients = await prisma.patient.findMany({ where: { deleted: false } });
     const patient = patients.find(
-      (p) =>
-        (p.email.toLowerCase() === username.toLowerCase() || p.phone === username) &&
-        !p.deleted
+      (candidate) =>
+        candidate.email?.toLowerCase() === usernameLower || candidate.phone === username
     );
 
     if (patient) {
-      // If patient has no password (e.g. created through booking), use default
       let isPasswordValid = false;
-      
+
       if (!patient.password) {
-        console.log("[AUTH] Patient has no password, checking against default:", username);
         isPasswordValid = await bcrypt.compare(password, PATIENT_PASSWORD_HASH);
-        
-        // If it's valid, let's update the patient with the default password for next time
         if (isPasswordValid) {
-          const allPatients = readData<Patient>(PATIENT_COLLECTION);
-          const pIndex = allPatients.findIndex(p => p.id === patient.id);
-          if (pIndex !== -1) {
-            allPatients[pIndex].password = PATIENT_PASSWORD_HASH;
-            writeData(PATIENT_COLLECTION, allPatients);
-          }
+          await prisma.patient.update({
+            where: { id: patient.id },
+            data: { password: PATIENT_PASSWORD_HASH, updatedAt: new Date() },
+          });
         }
       } else {
         isPasswordValid = await bcrypt.compare(password, patient.password);
       }
 
       if (!isPasswordValid) {
-        console.log("[AUTH] Invalid password for patient:", username);
-        res.status(401).json({
-          success: false,
-          message: "Invalid credentials",
-        });
+        res.status(401).json({ success: false, message: "Invalid credentials" });
         return;
       }
 
-      // Generate JWT token for patient
-      // Use email as the primary identifier for matching patient records in server-side filtering
-      const token = jwt.sign(
-        {
-          id: patient.id,
-          username: patient.email, // Use email as username for server-side patient filtering
-          name: patient.name,
-          email: patient.email,
-          role: "patient",
-          patientId: patient.id,
-          iat: Math.floor(Date.now() / 1000),
-        },
-        JWT_SECRET,
-        { expiresIn: JWT_EXPIRY }
-      );
-
-      console.log("[AUTH] Patient login successful:", patient.name);
-
-      res.cookie("authToken", token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "strict",
-        maxAge: 24 * 60 * 60 * 1000,
-        path: "/",
+      const token = signToken({
+        id: patient.id,
+        username: patient.email,
+        name: patient.name,
+        email: patient.email,
+        role: "patient",
+        patientId: patient.id,
       });
 
+      setAuthCookie(res, token);
       res.status(200).json({
         success: true,
         message: "Login successful",
@@ -391,12 +282,7 @@ export const login = async (
       return;
     }
 
-    // No matching user found
-    console.log("[AUTH] Invalid username:", username);
-    res.status(401).json({
-      success: false,
-      message: "Invalid credentials",
-    });
+    res.status(401).json({ success: false, message: "Invalid credentials" });
   } catch (error) {
     console.error("[AUTH] Login error:", error);
     res.status(500).json({
@@ -406,17 +292,11 @@ export const login = async (
   }
 };
 
-/**
- * Logout endpoint - clears the auth token
- */
 export const logout = (
   req: express.Request,
   res: express.Response
 ): void => {
   try {
-    console.log("[AUTH] Logout");
-
-    // Clear the auth token cookie
     res.clearCookie("authToken", {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
@@ -437,9 +317,6 @@ export const logout = (
   }
 };
 
-/**
- * Verify token endpoint - checks if the current token is valid
- */
 export const verifyToken = (
   req: express.Request,
   res: express.Response
@@ -471,10 +348,6 @@ export const verifyToken = (
   }
 };
 
-/**
- * Utility function to hash a password (for testing/setup purposes)
- * Usage: In terminal, run: ts-node -e "import {hashPassword} from './authController'; hashPassword('password').then(console.log)"
- */
 export const hashPassword = async (password: string): Promise<string> => {
   const salt = await bcrypt.genSalt(10);
   return bcrypt.hash(password, salt);

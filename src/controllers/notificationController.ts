@@ -1,58 +1,39 @@
 import { Request, Response } from "express";
 import { Notification } from "../types/notification";
 import { ApiResponse } from "../types/patient";
-import { readData, writeData } from "../utils/storage";
+import { prisma } from "../lib/prisma";
 import { updateOrCreateNotificationForAppointment } from "../utils/notifications";
 
-const COLLECTION = "notifications";
+const toNotification = (notification: any): Notification => ({
+  ...notification,
+  createdAt: notification.createdAt?.toISOString?.() || notification.createdAt || new Date().toISOString(),
+  updatedAt: notification.updatedAt?.toISOString?.() || notification.updatedAt || undefined,
+  deletedAt: notification.deletedAt?.toISOString?.() || notification.deletedAt || undefined,
+  metadata: notification.metadata as Notification["metadata"],
+});
 
-export const getNotifications = (req: Request, res: Response<ApiResponse<Notification[]>>) => {
+export const getNotifications = async (
+  req: Request,
+  res: Response<ApiResponse<Notification[]>>
+) => {
   try {
-    const notifications = readData<Notification>(COLLECTION);
-    
-    console.log(`[getNotifications] Raw query object:`, req.query);
-    console.log(`[getNotifications] Raw query string:`, req.url);
-
     const { userId, type, includeDeleted } = req.query as Record<string, string>;
+    const shouldIncludeDeleted =
+      includeDeleted === "true" || includeDeleted === "True" || includeDeleted === "1";
 
-    console.log(`[getNotifications] userId=${userId}, type=${type}, includeDeleted=${includeDeleted}`);
-    console.log(`[getNotifications] includeDeleted type: ${typeof includeDeleted}, value: "${includeDeleted}"`);
-    console.log(`[getNotifications] Total notifications in database: ${notifications.length}`);
-    console.log(`[getNotifications] Deleted notifications count: ${notifications.filter(n => n.deleted).length}`);
-
-    // Check if includeDeleted parameter is true (handle both string 'true' and boolean true)
-    const shouldIncludeDeleted = includeDeleted === 'true' || includeDeleted === 'True' || includeDeleted === '1';
-    console.log(`[getNotifications] shouldIncludeDeleted: ${shouldIncludeDeleted}`);
-
-    let filtered = shouldIncludeDeleted ? notifications : notifications.filter(n => !n.deleted);
-
-    console.log(`[getNotifications] After includeDeleted filter: ${filtered.length} notifications`);
-    console.log(`[getNotifications] After filter - deleted count in filtered: ${filtered.filter(n => n.deleted).length}`);
-
-    if (userId) {
-      filtered = filtered.filter(n => n.userId === userId);
-      console.log(`[getNotifications] After userId filter: ${filtered.length} notifications`);
-    }
-
-    if (type) {
-      filtered = filtered.filter(n => n.type === type);
-      console.log(`[getNotifications] After type filter: ${filtered.length} notifications`);
-    }
-
-    // Sort by latest date (updatedAt or createdAt) descending
-    filtered.sort((a, b) => {
-      const dateA = new Date(a.updatedAt || a.createdAt).getTime();
-      const dateB = new Date(b.updatedAt || b.createdAt).getTime();
-      return dateB - dateA;
+    const notifications = await prisma.notification.findMany({
+      where: {
+        ...(shouldIncludeDeleted ? {} : { deleted: false }),
+        ...(userId ? { userId } : {}),
+        ...(type ? { type } : {}),
+      },
+      orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
     });
-
-    console.log(`[getNotifications] Final result: ${filtered.length} notifications returned`);
-    console.log(`[getNotifications] Final - deleted count in result: ${filtered.filter(n => n.deleted).length}`);
 
     res.json({
       success: true,
       message: "Notifications retrieved successfully",
-      data: filtered,
+      data: notifications.map(toNotification),
     });
   } catch (error) {
     console.error("Error fetching notifications:", error);
@@ -64,68 +45,64 @@ export const getNotifications = (req: Request, res: Response<ApiResponse<Notific
   }
 };
 
-export const addNotification = (req: Request, res: Response<ApiResponse<Notification>>) => {
+export const addNotification = async (
+  req: Request,
+  res: Response<ApiResponse<Notification>>
+) => {
   try {
-    const notifications = readData<Notification>(COLLECTION);
     const notificationData: Notification = req.body;
 
-    if (!notificationData.userId || !notificationData.title || !notificationData.message || !notificationData.type) {
-      console.error("[NOTIFICATION CREATE] Missing required fields:", {
-        userId: !!notificationData.userId,
-        title: !!notificationData.title,
-        message: !!notificationData.message,
-        type: !!notificationData.type
-      });
+    if (
+      !notificationData.userId ||
+      !notificationData.title ||
+      !notificationData.message ||
+      !notificationData.type
+    ) {
       return res.status(400).json({
         success: false,
         message: "Missing required fields: userId, title, message, and type are required",
       });
     }
 
-    // Special handling for appointment notifications to prevent duplicates
     if (notificationData.type === "appointment" && notificationData.metadata?.appointmentId) {
-      updateOrCreateNotificationForAppointment(
+      const processed = await updateOrCreateNotificationForAppointment(
         notificationData.userId,
         notificationData.metadata.appointmentId,
         {
           title: notificationData.title,
           message: notificationData.message,
           type: notificationData.type,
-          metadata: notificationData.metadata
+          metadata: notificationData.metadata,
         }
-      );
-
-      // We need to return the updated/created notification. 
-      // Since updateOrCreateNotificationForAppointment doesn't return it easily without re-reading,
-      // and it handles its own writeData, we just re-read to find it.
-      const updatedNotifications = readData<Notification>(COLLECTION);
-      const found = updatedNotifications.find(n => 
-        n.userId === notificationData.userId && 
-        n.metadata?.appointmentId === notificationData.metadata?.appointmentId
       );
 
       return res.status(201).json({
         success: true,
         message: "Notification processed successfully",
-        data: found,
+        data: processed,
       });
     }
 
-    const newNotification: Notification = {
-      ...notificationData,
-      id: `notification_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-      createdAt: notificationData.createdAt || new Date().toISOString(),
-      isRead: notificationData.isRead || false,
-      deleted: false,
-    };
-
-    notifications.push(newNotification);
-    writeData(COLLECTION, notifications);
+    const newNotification = await prisma.notification.create({
+      data: {
+        id: `notification_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+        userId: notificationData.userId,
+        title: notificationData.title,
+        message: notificationData.message,
+        type: notificationData.type,
+        metadata: notificationData.metadata as any,
+        createdAt: notificationData.createdAt ? new Date(notificationData.createdAt) : new Date(),
+        updatedAt: notificationData.updatedAt ? new Date(notificationData.updatedAt) : new Date(),
+        isRead: notificationData.isRead || false,
+        deleted: false,
+        isLog: notificationData.isLog || false,
+      },
+    });
 
     res.status(201).json({
       success: true,
       message: "Notification added successfully",
-      data: newNotification,
+      data: toNotification(newNotification),
     });
   } catch (error) {
     console.error("Error adding notification:", error);
@@ -137,36 +114,37 @@ export const addNotification = (req: Request, res: Response<ApiResponse<Notifica
   }
 };
 
-export const updateNotification = (req: Request, res: Response<ApiResponse<Notification>>) => {
+export const updateNotification = async (
+  req: Request,
+  res: Response<ApiResponse<Notification>>
+) => {
   try {
-    const notifications = readData<Notification>(COLLECTION);
     const { id } = req.params;
-    const index = notifications.findIndex(n => n.id === id);
+    const existing = await prisma.notification.findUnique({ where: { id } });
 
-    if (index === -1) {
-      return res.status(404).json({
-        success: false,
-        message: "Notification not found",
-      });
+    if (!existing) {
+      return res.status(404).json({ success: false, message: "Notification not found" });
     }
 
     const updates = req.body;
     const isOnlyMarkingRead = Object.keys(updates).length === 1 && updates.isRead !== undefined;
 
-    notifications[index] = {
-      ...notifications[index],
-      ...updates,
-      // If updating more than just isRead, mark as unread AND update updatedAt
-      isRead: isOnlyMarkingRead ? updates.isRead : false,
-      updatedAt: isOnlyMarkingRead ? (notifications[index].updatedAt || notifications[index].createdAt) : new Date().toISOString(),
-    };
-
-    writeData(COLLECTION, notifications);
+    const updated = await prisma.notification.update({
+      where: { id },
+      data: {
+        ...(updates.title !== undefined && { title: updates.title }),
+        ...(updates.message !== undefined && { message: updates.message }),
+        ...(updates.type !== undefined && { type: updates.type }),
+        ...(updates.metadata !== undefined && { metadata: updates.metadata }),
+        isRead: isOnlyMarkingRead ? updates.isRead : false,
+        updatedAt: isOnlyMarkingRead ? existing.updatedAt || existing.createdAt : new Date(),
+      },
+    });
 
     res.json({
       success: true,
       message: "Notification updated successfully",
-      data: notifications[index],
+      data: toNotification(updated),
     });
   } catch (error) {
     console.error("Error updating notification:", error);
@@ -178,35 +156,23 @@ export const updateNotification = (req: Request, res: Response<ApiResponse<Notif
   }
 };
 
-export const deleteNotification = (req: Request, res: Response<ApiResponse<null>>) => {
+export const deleteNotification = async (
+  req: Request,
+  res: Response<ApiResponse<null>>
+) => {
   try {
-    const notifications = readData<Notification>(COLLECTION);
     const { id } = req.params;
-    console.log(`[deleteNotification] Attempting to delete notification with id: ${id}`);
-    const index = notifications.findIndex(n => n.id === id);
-
-    if (index === -1) {
-      console.log(`[deleteNotification] Notification with id ${id} not found`);
-      return res.status(404).json({
-        success: false,
-        message: "Notification not found",
-      });
+    const existing = await prisma.notification.findUnique({ where: { id } });
+    if (!existing) {
+      return res.status(404).json({ success: false, message: "Notification not found" });
     }
 
-    notifications[index] = {
-      ...notifications[index],
-      deleted: true,
-      deletedAt: new Date().toISOString(),
-    };
-
-    console.log(`[deleteNotification] Notification ${id} marked as deleted at ${notifications[index].deletedAt}`);
-
-    writeData(COLLECTION, notifications);
-
-    res.json({
-      success: true,
-      message: "Notification deleted successfully",
+    await prisma.notification.update({
+      where: { id },
+      data: { deleted: true, deletedAt: new Date(), updatedAt: new Date() },
     });
+
+    res.json({ success: true, message: "Notification deleted successfully" });
   } catch (error) {
     console.error("Error deleting notification:", error);
     res.status(500).json({
@@ -217,31 +183,22 @@ export const deleteNotification = (req: Request, res: Response<ApiResponse<null>
   }
 };
 
-export const markAllAsRead = (req: Request, res: Response<ApiResponse<null>>) => {
+export const markAllAsRead = async (
+  req: Request,
+  res: Response<ApiResponse<null>>
+) => {
   try {
-    const notifications = readData<Notification>(COLLECTION);
     const { userId } = req.query as Record<string, string>;
-
     if (!userId) {
-      return res.status(400).json({
-        success: false,
-        message: "userId is required",
-      });
+      return res.status(400).json({ success: false, message: "userId is required" });
     }
 
-    const updatedNotifications = notifications.map(n => {
-      if (n.userId === userId && !n.isRead && !n.deleted) {
-        return { ...n, isRead: true };
-      }
-      return n;
+    await prisma.notification.updateMany({
+      where: { userId, isRead: false, deleted: false },
+      data: { isRead: true },
     });
 
-    writeData(COLLECTION, updatedNotifications);
-
-    res.json({
-      success: true,
-      message: "All notifications marked as read",
-    });
+    res.json({ success: true, message: "All notifications marked as read" });
   } catch (error) {
     console.error("Error marking all as read:", error);
     res.status(500).json({
@@ -252,31 +209,22 @@ export const markAllAsRead = (req: Request, res: Response<ApiResponse<null>>) =>
   }
 };
 
-export const deleteAllNotifications = (req: Request, res: Response<ApiResponse<null>>) => {
+export const deleteAllNotifications = async (
+  req: Request,
+  res: Response<ApiResponse<null>>
+) => {
   try {
-    const notifications = readData<Notification>(COLLECTION);
     const { userId } = req.query as Record<string, string>;
-
     if (!userId) {
-      return res.status(400).json({
-        success: false,
-        message: "userId is required",
-      });
+      return res.status(400).json({ success: false, message: "userId is required" });
     }
 
-    const updatedNotifications = notifications.map(n => {
-      if (n.userId === userId && !n.deleted) {
-        return { ...n, deleted: true, deletedAt: new Date().toISOString() };
-      }
-      return n;
+    await prisma.notification.updateMany({
+      where: { userId, deleted: false },
+      data: { deleted: true, deletedAt: new Date(), updatedAt: new Date() },
     });
 
-    writeData(COLLECTION, updatedNotifications);
-
-    res.json({
-      success: true,
-      message: "All notifications cleared",
-    });
+    res.json({ success: true, message: "All notifications cleared" });
   } catch (error) {
     console.error("Error deleting all notifications:", error);
     res.status(500).json({
@@ -287,43 +235,29 @@ export const deleteAllNotifications = (req: Request, res: Response<ApiResponse<n
   }
 };
 
-export const restoreNotification = (req: Request, res: Response<ApiResponse<Notification>>) => {
+export const restoreNotification = async (
+  req: Request,
+  res: Response<ApiResponse<Notification>>
+) => {
   try {
-    const notifications = readData<Notification>(COLLECTION);
     const { id } = req.params;
-    console.log(`[restoreNotification] Attempting to restore notification with id: ${id}`);
-    const index = notifications.findIndex(n => n.id === id);
-
-    if (index === -1) {
-      console.log(`[restoreNotification] Notification with id ${id} not found`);
-      return res.status(404).json({
-        success: false,
-        message: "Notification not found",
-      });
+    const existing = await prisma.notification.findUnique({ where: { id } });
+    if (!existing) {
+      return res.status(404).json({ success: false, message: "Notification not found" });
+    }
+    if (!existing.deleted) {
+      return res.status(400).json({ success: false, message: "Notification is not deleted" });
     }
 
-    if (!notifications[index].deleted) {
-      console.log(`[restoreNotification] Notification ${id} is not deleted`);
-      return res.status(400).json({
-        success: false,
-        message: "Notification is not deleted",
-      });
-    }
-
-    notifications[index] = {
-      ...notifications[index],
-      deleted: false,
-      deletedAt: undefined,
-    };
-
-    console.log(`[restoreNotification] Notification ${id} restored successfully`);
-
-    writeData(COLLECTION, notifications);
+    const restored = await prisma.notification.update({
+      where: { id },
+      data: { deleted: false, deletedAt: null, updatedAt: new Date() },
+    });
 
     res.json({
       success: true,
       message: "Notification restored successfully",
-      data: notifications[index],
+      data: toNotification(restored),
     });
   } catch (error) {
     console.error("Error restoring notification:", error);

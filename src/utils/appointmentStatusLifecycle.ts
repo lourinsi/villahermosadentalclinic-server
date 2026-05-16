@@ -1,153 +1,127 @@
 import { Appointment } from "../types/appointment";
 import { normalizeStatus } from "../constants/appointmentStatuses";
 import { createAppointmentLog } from "./appointmentLogs";
-import { readData, writeData } from "./storage";
+import { prisma } from "../lib/prisma";
 
-const APPOINTMENTS_COLLECTION = "appointments";
 const TBD_STATUS = "tbd";
 const FINAL_STATUSES = new Set(["cancelled", "completed"]);
-const EXCLUDED_PAST_STATUSES = new Set(["pending", "tentative"]);
+const PAST_APPOINTMENT_STATUSES = new Set([TBD_STATUS, ...FINAL_STATUSES]);
 
 interface LifecycleResult {
   updatedCount: number;
   updatedIds: string[];
 }
 
-const parseAppointmentEnd = (appointment: Appointment): Date | null => {
-  const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(appointment.date || "");
-  const timeMatch = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(appointment.time || "");
+const toAppointment = (appointment: unknown): Appointment => appointment as Appointment;
 
-  if (!dateMatch || !timeMatch) {
-    return null;
-  }
+const parseAppointmentDate = (dateValue?: string): Date | null => {
+  const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateValue || "");
+  if (!dateMatch) return null;
 
   const year = Number(dateMatch[1]);
   const month = Number(dateMatch[2]);
   const day = Number(dateMatch[3]);
-  const hour = Number(timeMatch[1]);
-  const minute = Number(timeMatch[2]);
-  const second = Number(timeMatch[3] || 0);
+  const date = new Date(year, month - 1, day);
 
   if (
-    !Number.isInteger(year) ||
-    !Number.isInteger(month) ||
-    !Number.isInteger(day) ||
-    !Number.isInteger(hour) ||
-    !Number.isInteger(minute) ||
-    !Number.isInteger(second) ||
-    month < 1 ||
-    month > 12 ||
-    hour < 0 ||
-    hour > 23 ||
-    minute < 0 ||
-    minute > 59 ||
-    second < 0 ||
-    second > 59
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
   ) {
     return null;
   }
 
-  const start = new Date(year, month - 1, day, hour, minute, second);
-  if (
-    start.getFullYear() !== year ||
-    start.getMonth() !== month - 1 ||
-    start.getDate() !== day ||
-    start.getHours() !== hour ||
-    start.getMinutes() !== minute ||
-    start.getSeconds() !== second
-  ) {
-    return null;
-  }
+  return date;
+};
 
-  const durationMinutes = Number(appointment.duration);
-  const safeDuration = Number.isFinite(durationMinutes) && durationMinutes > 0 ? durationMinutes : 60;
+export const isPastAppointmentDate = (
+  dateValue?: string,
+  now: Date = new Date()
+): boolean => {
+  const appointmentDate = parseAppointmentDate(dateValue);
+  if (!appointmentDate) return false;
 
-  return new Date(start.getTime() + safeDuration * 60 * 1000);
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return appointmentDate.getTime() < today.getTime();
+};
+
+export const getPastRestrictedAppointmentStatus = (
+  dateValue?: string,
+  status?: string,
+  now: Date = new Date()
+): string => {
+  if (!isPastAppointmentDate(dateValue, now)) return normalizeStatus(status || "scheduled");
+
+  const normalizedStatus = normalizeStatus(status);
+  return PAST_APPOINTMENT_STATUSES.has(normalizedStatus) ? normalizedStatus : TBD_STATUS;
 };
 
 const shouldMarkAppointmentAsTbd = (appointment: Appointment, now: Date): boolean => {
-  if (appointment.deleted) {
-    return false;
-  }
-
-  const rawStatus = (appointment.status || "").toLowerCase().trim();
-  if (EXCLUDED_PAST_STATUSES.has(rawStatus)) {
-    return false;
-  }
+  if (appointment.deleted) return false;
 
   const normalizedStatus = normalizeStatus(appointment.status);
-  if (FINAL_STATUSES.has(normalizedStatus) || normalizedStatus === TBD_STATUS) {
-    return false;
-  }
+  if (FINAL_STATUSES.has(normalizedStatus) || normalizedStatus === TBD_STATUS) return false;
 
-  const appointmentEnd = parseAppointmentEnd(appointment);
-  return appointmentEnd !== null && appointmentEnd.getTime() < now.getTime();
+  return isPastAppointmentDate(appointment.date, now);
 };
 
-export const markPastAppointmentsAsTbd = (
+export const markPastAppointmentsAsTbd = async (
   appointments: Appointment[],
   now: Date = new Date()
-): LifecycleResult => {
+): Promise<LifecycleResult> => {
   const updatedIds: string[] = [];
-  let updatedCount = 0;
 
-  appointments.forEach((appointment) => {
-    if (!shouldMarkAppointmentAsTbd(appointment, now)) {
-      return;
-    }
+  for (const appointment of appointments) {
+    if (!shouldMarkAppointmentAsTbd(appointment, now) || !appointment.id) continue;
 
     const previousState: Appointment = { ...appointment };
     appointment.status = TBD_STATUS;
     appointment.updatedAt = now;
-    updatedCount += 1;
-    if (appointment.id) {
-      updatedIds.push(appointment.id);
-    }
+    updatedIds.push(appointment.id);
 
-    if (appointment.id) {
-      createAppointmentLog(
-        appointment.id,
-        previousState,
-        { ...appointment },
-        "system",
-        "System",
-        "status_change",
-        0,
-        "Automatically marked TBD because the appointment time passed without completion or cancellation."
-      );
-    }
-  });
+    await prisma.appointment.update({
+      where: { id: appointment.id },
+      data: { status: TBD_STATUS, updatedAt: now },
+    });
 
-  if (updatedCount > 0) {
+    await createAppointmentLog(
+      appointment.id,
+      previousState,
+      { ...appointment },
+      "system",
+      "System",
+      "status_change",
+      0,
+      "Automatically marked TBD because the appointment date passed without completion or cancellation."
+    );
+  }
+
+  if (updatedIds.length > 0) {
     console.log(
-      `[APPOINTMENT LIFECYCLE] Marked ${updatedCount} past appointment(s) as TBD: ${updatedIds.join(", ")}`
+      `[APPOINTMENT LIFECYCLE] Marked ${updatedIds.length} past appointment(s) as TBD: ${updatedIds.join(", ")}`
     );
   }
 
   return {
-    updatedCount,
+    updatedCount: updatedIds.length,
     updatedIds,
   };
 };
 
-export const syncPastAppointmentsToTbd = (now: Date = new Date()): LifecycleResult => {
-  const appointments = readData<Appointment>(APPOINTMENTS_COLLECTION);
-  const result = markPastAppointmentsAsTbd(appointments, now);
+export const syncPastAppointmentsToTbd = async (
+  now: Date = new Date()
+): Promise<LifecycleResult> => {
+  const appointments = (await prisma.appointment.findMany({
+    where: { deleted: false },
+  })).map(toAppointment);
 
-  if (result.updatedCount > 0) {
-    writeData(APPOINTMENTS_COLLECTION, appointments);
-  }
-
-  return result;
+  return markPastAppointmentsAsTbd(appointments, now);
 };
 
-export const readAppointmentsWithLifecycle = (now: Date = new Date()): Appointment[] => {
-  const appointments = readData<Appointment>(APPOINTMENTS_COLLECTION);
-  const result = markPastAppointmentsAsTbd(appointments, now);
-
-  if (result.updatedCount > 0) {
-    writeData(APPOINTMENTS_COLLECTION, appointments);
-  }
-
+export const readAppointmentsWithLifecycle = async (
+  now: Date = new Date()
+): Promise<Appointment[]> => {
+  const appointments = (await prisma.appointment.findMany()).map(toAppointment);
+  await markPastAppointmentsAsTbd(appointments, now);
   return appointments;
 };
