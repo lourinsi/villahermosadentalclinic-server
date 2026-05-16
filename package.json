@@ -11,7 +11,7 @@
     "lint": "eslint src",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:studio": "prisma studio",
+    "prisma:studio": "cross-env BROWSER=none prisma studio",
     "db:push": "prisma db push",
     "db:import-json": "tsx src/scripts/importJsonData.ts"
   },
@@ -45,6 +45,7 @@
     "@types/pg": "^8.20.0",
     "@typescript-eslint/eslint-plugin": "^6.15.0",
     "@typescript-eslint/parser": "^6.15.0",
+    "cross-env": "^10.1.0",
     "eslint": "^8.56.0",
     "ts-node": "^10.9.2",
     "tsx": "^4.21.0",
