@@ -9,6 +9,7 @@ import {
 } from "../utils/notifications";
 import { getAppointmentTypeName } from "../utils/appointment-types";
 import { createAppointmentLog } from "../utils/appointmentLogs";
+import { createPaymentLog } from "../utils/paymentLogs";
 import { readAppointmentsWithLifecycle } from "../utils/appointmentStatusLifecycle";
 import { prisma } from "../lib/prisma";
 import {
@@ -146,6 +147,19 @@ export const createPayment = async (req: Request, res: Response<ApiResponse<any>
       notes
     );
 
+    if (payAmount > 0) {
+      await createPaymentLog(
+        appointmentId,
+        payAmount,
+        method || "unknown",
+        updatedAppointment.paymentStatus || "unpaid",
+        changedBy,
+        oldAppointment.balance || 0,
+        updatedAppointment.balance || 0,
+        changedByName
+      );
+    }
+
     const recipients = await resolveRecipients(updatedAppointment);
     if (updatedAppointment.status !== oldStatus) {
       await notifyStatusChange(
@@ -182,6 +196,22 @@ export const createPayment = async (req: Request, res: Response<ApiResponse<any>
       data: { balance: { decrement: payAmount }, updatedAt: new Date() },
     });
 
+    // Persist an immutable appointment snapshot on the payment record (if payment persisted)
+    try {
+      if (newPayment && (newPayment as any).id) {
+        await prisma.payment.update({
+          where: { id: (newPayment as any).id },
+          data: { appointmentSnapshot: updatedAppointment },
+        });
+        // refresh newPayment object to include appointmentSnapshot
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        // (we intentionally keep types loose for snapshot payload)
+        // Note: ignore result; returning object below will include updated appointment from DB
+      }
+    } catch (err) {
+      console.warn("Failed to attach appointmentSnapshot to payment record:", err);
+    }
+
     await prisma.financeRecord.create({
       data: {
         id: `fin_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
@@ -190,6 +220,7 @@ export const createPayment = async (req: Request, res: Response<ApiResponse<any>
         amount: newPayment.amount,
         date: newPayment.date,
         description: `Payment ${newPayment.id} for appointment ${appointmentId}`,
+        appointmentSnapshot: updatedAppointment,
         createdAt: new Date(),
         updatedAt: new Date(),
         deleted: false,
@@ -310,6 +341,17 @@ export const updatePayment = async (req: Request, res: Response<ApiResponse<any>
           notes
         );
 
+        await createPaymentLog(
+          oldPayment.appointmentId,
+          amountDiff,
+          updatedPayment.method || oldPayment.method || "unknown",
+          savedAppointment.paymentStatus || "unpaid",
+          changedBy,
+          oldAppointment.balance || 0,
+          savedAppointment.balance || 0,
+          changedByName
+        );
+
         const recipients = await resolveRecipients(savedAppointment);
         if (amountDiff > 0) {
           await notifyPaymentReceived(oldPayment.appointmentId, amountDiff, recipients, appointmentData(savedAppointment), id);
@@ -391,6 +433,17 @@ export const deletePayment = async (req: Request, res: Response<ApiResponse<any>
         "payment",
         -payment.amount,
         "Payment deleted"
+      );
+
+      await createPaymentLog(
+        payment.appointmentId,
+        -payment.amount,
+        payment.method || "unknown",
+        savedAppointment.paymentStatus || "unpaid",
+        changedBy,
+        oldAppointment.balance || 0,
+        savedAppointment.balance || 0,
+        changedByName
       );
 
       if (savedAppointment.paymentStatus !== oldPaymentStatus) {

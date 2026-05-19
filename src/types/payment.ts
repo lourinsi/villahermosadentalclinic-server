@@ -2,6 +2,7 @@ export interface Payment {
   id: string;
   appointmentId: string;
   patientId?: string;
+  appointmentSnapshot?: any;
   amount: number;
   method: string;
   date: string;

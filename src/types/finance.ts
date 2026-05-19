@@ -1,6 +1,7 @@
 export interface FinanceRecord {
   id?: string;
   patientId?: string;
+  appointmentSnapshot?: any;
   type: "charge" | "payment" | string;
   amount: number;
   date: string; // YYYY-MM-DD
@@ -62,6 +63,11 @@ export interface RecentTransaction {
   amount: number;
   type: string;
   method: string;
+  appointmentId?: string;
+  appointmentSnapshot?: any;
+  logDate?: string;
+  changedByName?: string;
+  source?: string;
 }
 
 export interface ApiResponse<T> {

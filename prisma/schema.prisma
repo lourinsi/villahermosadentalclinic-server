@@ -130,6 +130,7 @@ model Payment {
   amount        Float
   method        String
   date          String
+  appointmentSnapshot Json?
   transactionId String?
   notes         String?
   status        String?
@@ -257,6 +258,7 @@ model FinanceRecord {
   type        String
   amount      Float
   date        String
+  appointmentSnapshot Json?
   description String?
   isSeeding   Boolean?
   createdAt   DateTime?
