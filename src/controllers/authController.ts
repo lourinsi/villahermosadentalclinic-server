@@ -19,6 +19,8 @@ let PATIENT_PASSWORD_HASH: string;
 
 const JWT_SECRET = process.env.JWT_SECRET || "your-super-secret-jwt-key-change-this-in-production";
 const JWT_EXPIRY = "24h";
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
+const AUTH_COOKIE_SAME_SITE = IS_PRODUCTION ? "none" : "strict";
 
 export const initializeAuth = async () => {
   try {
@@ -105,8 +107,8 @@ export const register = async (
 const setAuthCookie = (res: express.Response, token: string) => {
   res.cookie("authToken", token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
+    secure: IS_PRODUCTION,
+    sameSite: AUTH_COOKIE_SAME_SITE,
     maxAge: 24 * 60 * 60 * 1000,
     path: "/",
   });
@@ -299,8 +301,8 @@ export const logout = (
   try {
     res.clearCookie("authToken", {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      secure: IS_PRODUCTION,
+      sameSite: AUTH_COOKIE_SAME_SITE,
       path: "/",
     });
 
