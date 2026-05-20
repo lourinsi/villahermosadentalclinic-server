@@ -12,7 +12,14 @@ const globalForPrisma = globalThis as unknown as {
   prisma?: PrismaClient;
 };
 
-const adapter = new PrismaPg({ connectionString });
+const needsSupabasePoolerSsl =
+  connectionString.includes(".supabase.com") ||
+  process.env.DATABASE_SSL_REJECT_UNAUTHORIZED === "false";
+
+const adapter = new PrismaPg({
+  connectionString,
+  ssl: needsSupabasePoolerSsl ? { rejectUnauthorized: false } : undefined,
+});
 
 export const prisma =
   globalForPrisma.prisma ??
