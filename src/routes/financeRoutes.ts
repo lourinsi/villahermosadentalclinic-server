@@ -13,8 +13,12 @@ import {
   getPayroll,
   getRecentTransactions,
 } from "../controllers/financeController";
+import { requireAuth } from "../middleware/authMiddleware";
 
 const router = Router();
+
+// Apply requireAuth to all finance routes
+router.use(requireAuth);
 
 // POST - Add new finance record
 router.post("/", createFinanceRecord);

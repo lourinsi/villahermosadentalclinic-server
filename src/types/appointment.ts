@@ -4,10 +4,31 @@ export interface Appointment {
   patientName: string;
   date: string; // YYYY-MM-DD
   time: string; // HH:MM
-  type: string; // e.g., "Cleaning", "Checkup", "Filling"
+  type: number; // Index referring to APPOINTMENT_TYPES array
+  customType?: string; // Used when type is 'Other'
+  price?: number;
+  discount?: number; // numeric amount discounted from price
   doctor: string;
+  duration?: number; // in minutes
   notes?: string;
-  status?: "scheduled" | "confirmed" | "pending" | "tentative" | "completed" | "cancelled";
+  serviceType?: string;
+  // Status is flexible to accept any value from the JSON configuration
+  status?: string;
+  cancellationReason?: string; // Reason why appointment was cancelled (e.g., "Another appointment was scheduled for this time slot")
+  paymentStatus?: "paid" | "unpaid" | "overdue" | "half-paid" | "over-paid";
+  paymentMethod?: string; // Payment method (e.g., 'cash', 'card', 'check')
+  balance?: number;
+  totalPaid?: number;
+  // Deprecated: transactions are now stored in payments collection. Keep for backward compat only.
+  transactions?: {
+    id: string;
+    amount: number;
+    method?: string;
+    date?: string;
+    transactionId?: string;
+    notes?: string;
+    status?: string;
+  }[];
   createdAt?: Date;
   updatedAt?: Date;
   deleted?: boolean;

@@ -42,6 +42,63 @@ Express.js backend API for the Villahermosa Dental Clinic management system.
 
 ## API Endpoints
 
+### Authentication
+
+#### Register a new patient
+- **POST** `/api/auth/register`
+- **Body:**
+  ```json
+  {
+    "name": "John Doe",
+    "email": "john@example.com",
+    "phone": "555-555-5555"
+  }
+  ```
+- **Response (Success):**
+  ```json
+  {
+    "success": true,
+    "message": "Patient registered successfully"
+  }
+  ```
+- **Response (Error):**
+  ```json
+  {
+    "success": false,
+    "message": "A patient with this email or phone number already exists"
+  }
+  ```
+
+#### Login
+- **POST** `/api/auth/login`
+- **Body:**
+  ```json
+  {
+    "username": "john@example.com",
+    "password": "villahermosa123"
+  }
+  ```
+- **Response (Success):**
+  ```json
+  {
+    "success": true,
+    "message": "Login successful",
+    "token": "your-jwt-token",
+    "user": {
+        "username": "John Doe",
+        "role": "patient",
+        "patientId": "PATIENT-1705526848651"
+    }
+  }
+  ```
+- **Response (Error):**
+  ```json
+  {
+    "success": false,
+    "message": "Invalid credentials"
+  }
+  ```
+
 ### Patients
 
 #### Add a new patient

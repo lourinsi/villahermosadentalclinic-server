@@ -6,8 +6,12 @@ import {
   updateInventoryItem,
   deleteInventoryItem,
 } from "../controllers/inventoryController";
+import { requireAuth } from "../middleware/authMiddleware";
 
 const router = Router();
+
+// Apply requireAuth to all inventory routes
+router.use(requireAuth);
 
 // POST - Add new inventory item
 router.post("/", createInventoryItem);
