@@ -2,7 +2,6 @@ FROM node:20-bookworm-slim
 
 WORKDIR /app
 
-ENV NODE_ENV=production
 ENV PORT=3001
 ENV DATABASE_URL=postgresql://postgres:postgres@localhost:5432/villahermosa
 
@@ -11,10 +10,12 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
-RUN npm ci
+RUN npm ci --include=dev
 
 COPY . .
 RUN npm run prisma:generate && npm run build
+
+ENV NODE_ENV=production
 
 EXPOSE 3001
 
