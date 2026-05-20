@@ -70,6 +70,9 @@ const isStaffRole = (req: Request): boolean => {
   return role === "admin" || role === "doctor";
 };
 
+const isCashPaymentMethod = (method: unknown): boolean =>
+  String(method || "").trim().toLowerCase() === "cash";
+
 const appointmentData = (appointment: Appointment) => ({
   patientName: appointment.patientName,
   date: appointment.date,
@@ -156,6 +159,49 @@ const timeToMinutes = (timeStr: string): number => {
 const normalizeDoctorName = (name: string) =>
   (name || "").replace(/^Dr\.\s+/i, "").toLowerCase().trim();
 
+const REQUEST_APPOINTMENT_STATUSES = new Set(["reserved", "to-pay", "half-paid", "tbd"]);
+const HISTORY_APPOINTMENT_STATUSES = new Set(["scheduled", "completed", "cancelled"]);
+
+const getAppointmentSortValue = (appointment: Appointment, sortBy?: string): string | number => {
+  switch (sortBy) {
+    case "patient":
+      return String(appointment.patientName || "").toLowerCase();
+    case "service":
+      return getAppointmentTypeName(appointment.type, appointment.customType).toLowerCase();
+    case "doctor":
+      return String(appointment.doctor || "").toLowerCase();
+    case "status":
+      return normalizeStatus(appointment.status);
+    case "payment":
+      return normalizeStatus(appointment.paymentStatus || "unpaid");
+    case "booked":
+      return appointment.createdAt ? new Date(appointment.createdAt).getTime() : Number.MIN_VALUE;
+    case "updated":
+      return appointment.updatedAt ? new Date(appointment.updatedAt).getTime() : Number.MIN_VALUE;
+    case "date":
+    default:
+      return `${appointment.date || ""}T${appointment.time || ""}`;
+  }
+};
+
+const sortAppointments = (
+  appointments: Appointment[],
+  sortBy?: string,
+  sortDirection?: string
+) => {
+  const direction = sortDirection === "asc" ? "asc" : "desc";
+  const column = sortBy || "date";
+
+  return [...appointments].sort((a, b) => {
+    const aVal = getAppointmentSortValue(a, column);
+    const bVal = getAppointmentSortValue(b, column);
+
+    if (aVal < bVal) return direction === "asc" ? -1 : 1;
+    if (aVal > bVal) return direction === "asc" ? 1 : -1;
+    return 0;
+  });
+};
+
 const cancelOverlappingPendingAppointments = async (
   appointments: Appointment[],
   newAppointment: Appointment,
@@ -237,6 +283,12 @@ export const addAppointment = async (
       return res.status(400).json({
         success: false,
         message: "Admin and doctor users cannot create Add to Cart appointments.",
+      });
+    }
+    if (!isSeeding && isCashPaymentMethod(appointmentInput.paymentMethod) && !isStaffRole(req)) {
+      return res.status(403).json({
+        success: false,
+        message: "Cash payments can only be recorded by admins or doctors",
       });
     }
 
@@ -368,7 +420,15 @@ export const getAppointments = async (
       anonymize,
       includeUnpaid,
       matchType,
+      view,
+      page,
+      limit,
+      sortBy,
+      sortDirection,
     } = req.query as Record<string, string>;
+    const shouldPaginate = Boolean(page || limit);
+    const pageNum = Math.max(1, parseInt(page || "1", 10) || 1);
+    const limitNum = Math.max(1, Math.min(100, parseInt(limit || "20", 10) || 20));
 
     let filtered = appointments.filter((appointment) => !appointment.deleted);
 
@@ -430,6 +490,15 @@ export const getAppointments = async (
     if (type && type !== "all") {
       filtered = filtered.filter((appointment) => appointment.type === parseInt(type, 10));
     }
+    if (view === "requests") {
+      filtered = filtered.filter((appointment) =>
+        REQUEST_APPOINTMENT_STATUSES.has(normalizeStatus(appointment.status))
+      );
+    } else if (view === "history") {
+      filtered = filtered.filter((appointment) =>
+        HISTORY_APPOINTMENT_STATUSES.has(normalizeStatus(appointment.status))
+      );
+    }
     if (status && status !== "all") {
       filtered = filtered.filter(
         (appointment) =>
@@ -454,14 +523,30 @@ export const getAppointments = async (
       }));
     }
 
-    res.json({
+    if (sortBy || view || shouldPaginate) {
+      filtered = sortAppointments(filtered, sortBy || (view === "requests" ? "booked" : "date"), sortDirection);
+    }
+
+    const total = filtered.length;
+    const totalPages = Math.max(1, Math.ceil(total / limitNum));
+    const pageData = shouldPaginate
+      ? filtered.slice((pageNum - 1) * limitNum, (pageNum - 1) * limitNum + limitNum)
+      : filtered;
+
+    const response: ApiResponse<Appointment[]> = {
       success: true,
       message: "Appointments retrieved successfully",
-      data: filtered.map((appointment) => ({
+      data: pageData.map((appointment) => ({
         ...appointment,
         status: normalizeStatus(appointment.status),
       })),
-    });
+    };
+
+    if (shouldPaginate) {
+      response.meta = { total, page: pageNum, limit: limitNum, totalPages };
+    }
+
+    res.json(response);
   } catch (error) {
     console.error("[APPOINTMENT GET_ALL] Error fetching appointments:", error);
     res.status(500).json({
@@ -566,6 +651,16 @@ export const updateAppointment = async (
     const oldAppointment = appointments.find((appointment) => appointment.id === id);
     if (!oldAppointment || (isStaffRole(req) && isPatientCartStatus(oldAppointment.status))) {
       return res.status(404).json({ success: false, message: "Appointment not found" });
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(updates, "paymentMethod") &&
+      isCashPaymentMethod(updates.paymentMethod) &&
+      !isStaffRole(req)
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "Cash payments can only be recorded by admins or doctors",
+      });
     }
 
     const derivedTotalPaid =
@@ -798,6 +893,12 @@ export const bookPublicAppointment = async (
       return res.status(400).json({
         success: false,
         message: "Missing required fields: firstName, lastName, phone, date, time, type",
+      });
+    }
+    if (isCashPaymentMethod(paymentMethodFromClient)) {
+      return res.status(403).json({
+        success: false,
+        message: "Cash payments can only be recorded by admins or doctors",
       });
     }
 

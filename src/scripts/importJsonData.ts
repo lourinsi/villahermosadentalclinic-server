@@ -85,6 +85,8 @@ const main = async () => {
       emergencyContact: text(patient.emergencyContact),
       emergencyPhone: text(patient.emergencyPhone),
       medicalHistory: text(patient.medicalHistory),
+      treatmentPlan: text(patient.treatmentPlan),
+      clinicalNotes: text(patient.clinicalNotes),
       allergies: text(patient.allergies),
       notes: text(patient.notes),
       profilePicture: text(patient.profilePicture),

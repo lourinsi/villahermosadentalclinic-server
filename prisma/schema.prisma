@@ -26,6 +26,8 @@ model Patient {
   emergencyContact      String?
   emergencyPhone        String?
   medicalHistory        String?
+  treatmentPlan         String?
+  clinicalNotes         String?
   allergies             String?
   notes                 String?
   profilePicture        String?

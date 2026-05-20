@@ -34,11 +34,22 @@ const appointmentData = (appointment: any) => ({
   doctor: appointment.doctor,
 });
 
+const isStaffRole = (req: Request): boolean => {
+  const role = String((req as any).user?.role || "").toLowerCase();
+  return role === "admin" || role === "doctor";
+};
+
+const isCashPaymentMethod = (method: unknown): boolean =>
+  String(method || "").trim().toLowerCase() === "cash";
+
 export const createPayment = async (req: Request, res: Response<ApiResponse<any>>) => {
   try {
     const { appointmentId, patientId, amount, method, date, transactionId, notes } = req.body;
     if (!appointmentId || amount === undefined || isNaN(Number(amount))) {
       return res.status(400).json({ success: false, message: "Missing appointmentId or invalid amount" });
+    }
+    if (isCashPaymentMethod(method) && !isStaffRole(req)) {
+      return res.status(403).json({ success: false, message: "Cash payments can only be recorded by admins or doctors" });
     }
 
     const appointment = toAppointment(
