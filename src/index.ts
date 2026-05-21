@@ -7,28 +7,44 @@ dotenv.config();
 
 const app: Express = express();
 const PORT = process.env.PORT || 3001;
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
 const APPOINTMENT_LIFECYCLE_SYNC_INTERVAL_MS = 60 * 1000;
 
-// Middleware
-app.use(
-  cors({
-    origin: FRONTEND_URL,
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    optionsSuccessStatus: 200,
-  })
-);
+const configuredOrigins = [
+  process.env.FRONTEND_URL,
+  ...(process.env.FRONTEND_URLS || "").split(","),
+]
+  .map((origin) => origin?.trim().replace(/\/+$/, ""))
+  .filter((origin): origin is string => Boolean(origin));
 
-// Explicitly handle preflight requests
-app.options('*', cors({
-  origin: FRONTEND_URL,
+const allowedOrigins = new Set([
+  "http://localhost:3000",
+  "https://villahermosadentalclinic.vercel.app",
+  ...configuredOrigins,
+]);
+
+const vercelDeploymentOrigin =
+  /^https:\/\/villahermosadentalclinic(?:-[a-z0-9]+)?-lourinsis-projects\.vercel\.app$/;
+
+const corsOptions: cors.CorsOptions = {
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.has(origin) || vercelDeploymentOrigin.test(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error(`CORS blocked origin: ${origin}`));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   optionsSuccessStatus: 200,
-}));
+};
+
+// Middleware
+app.use(cors(corsOptions));
+
+// Explicitly handle preflight requests
+app.options('*', cors(corsOptions));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -117,10 +133,8 @@ app.use((req: express.Request, res: express.Response) => {
     }, APPOINTMENT_LIFECYCLE_SYNC_INTERVAL_MS);
 
     app.listen(PORT, () => {
-      console.log(
-        `🚀 Server is running on http://localhost:${PORT}`
-      );
-      console.log(`📍 Frontend URL: ${FRONTEND_URL}`);
+      console.log(`Server is running on http://localhost:${PORT}`);
+      console.log(`Allowed frontend origins: ${Array.from(allowedOrigins).join(", ")}`);
     });
   } catch (error) {
     console.error("Failed to start server:", error);

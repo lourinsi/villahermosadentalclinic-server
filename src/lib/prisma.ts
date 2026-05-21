@@ -12,14 +12,22 @@ const globalForPrisma = globalThis as unknown as {
   prisma?: PrismaClient;
 };
 
-const needsSupabasePoolerSsl =
-  connectionString.includes(".supabase.com") ||
-  process.env.DATABASE_SSL_REJECT_UNAUTHORIZED === "false";
+const getRuntimeConnectionString = (url: string) => {
+  const shouldSkipCertVerification =
+    url.includes(".supabase.com") ||
+    process.env.DATABASE_SSL_REJECT_UNAUTHORIZED === "false";
 
-const adapter = new PrismaPg({
-  connectionString,
-  ssl: needsSupabasePoolerSsl ? { rejectUnauthorized: false } : undefined,
-});
+  if (!shouldSkipCertVerification) {
+    return url;
+  }
+
+  const runtimeUrl = new URL(url);
+  runtimeUrl.searchParams.set("sslmode", "no-verify");
+  runtimeUrl.searchParams.delete("pgbouncer");
+  return runtimeUrl.toString();
+};
+
+const adapter = new PrismaPg(getRuntimeConnectionString(connectionString));
 
 export const prisma =
   globalForPrisma.prisma ??
