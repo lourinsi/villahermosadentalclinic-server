@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import bcrypt from "bcryptjs";
 import { Patient, ApiResponse } from "../types/patient";
 import { createNotification, notifyAdmin } from "../utils/notifications";
+import { isPatientCartStatus } from "../constants/appointmentStatuses";
 import { prisma } from "../lib/prisma";
 
 const patientUpdateFields = [
@@ -358,6 +359,107 @@ export const getPatients = async (
       });
     }
 
+    // Compute balance and overdue status for the remaining patients server-side using Prisma data
+    if (active.length > 0) {
+      const todayStr = new Date().toISOString().split("T")[0];
+      const patientIds = active.map((p) => p.id).filter(Boolean) as string[];
+
+      const appts = await prisma.appointment.findMany({
+        where: { deleted: false, patientId: { in: patientIds } },
+        select: { id: true, patientId: true, price: true, discount: true, status: true, date: true, paymentStatus: true, balance: true, totalPaid: true },
+      });
+
+      const apptMap: Record<string, { totalBalance: number; hasOverdue: boolean; lastCompletedDate?: string | null }> = {};
+
+      const apptIds = appts.map((a) => a.id).filter(Boolean) as string[];
+      // Fetch payments for these appointments so we compute outstanding amounts reliably
+      const payments = apptIds.length
+        ? await prisma.payment.findMany({
+            where: { deleted: false, appointmentId: { in: apptIds } },
+            select: { appointmentId: true, amount: true },
+          })
+        : [];
+
+      const paymentSums: Record<string, number> = {};
+      for (const p of payments) {
+        const aid = p.appointmentId as string;
+        paymentSums[aid] = (paymentSums[aid] || 0) + Number(p.amount || 0);
+      }
+
+      for (const a of appts) {
+        const pid = a.patientId as string;
+        // Exclude appointments that are just in the patient's cart
+        if (isPatientCartStatus(a.status)) continue;
+        if (!apptMap[pid]) apptMap[pid] = { totalBalance: 0, hasOverdue: false, lastCompletedDate: null };
+        const entry = apptMap[pid];
+
+        const price = Number((a as any).price ?? 0) || 0;
+        const discount = Number((a as any).discount ?? 0) || 0;
+        const totalDue = Math.max(0, price - discount);
+
+        // Compute outstanding robustly:
+        // 1) If recorded payments cover the total due, treat as fully paid.
+        // 2) Else prefer an explicit appointment.balance when present.
+        // 3) Otherwise compute totalDue - payments.
+        const paid = paymentSums[a.id] || 0;
+        let outstanding = 0;
+        const EPS = 0.01;
+        if (paid + EPS >= totalDue) {
+          outstanding = 0;
+        } else if (a.balance !== undefined && a.balance !== null) {
+          outstanding = Math.max(0, Number((a as any).balance) || 0);
+        } else {
+          outstanding = Math.max(0, totalDue - paid);
+        }
+
+        entry.totalBalance += outstanding;
+
+        const aptStatus = String(a.status || "").toLowerCase();
+        const isCancelled = aptStatus === "cancelled";
+        const aptPaymentStatus = String((a as any).paymentStatus || "").toLowerCase();
+
+        // Mark overdue only when the appointment's paymentStatus is 'overdue'.
+        if (!isCancelled && aptPaymentStatus === "overdue") {
+          entry.hasOverdue = true;
+        }
+
+        if (aptStatus === "completed" && a.date) {
+          if (!entry.lastCompletedDate || a.date > entry.lastCompletedDate) {
+            entry.lastCompletedDate = a.date;
+          }
+        }
+      }
+
+      // Merge computed values back into patient records
+      active = active.map((patient) => {
+        const agg = apptMap[patient.id] || { totalBalance: 0, hasOverdue: false, lastCompletedDate: null };
+        const effectiveLastVisit = patient.lastVisit || agg.lastCompletedDate || null;
+
+        // Compute status deterministically (server authoritative):
+        // - If any appointment is overdue -> 'overdue'
+        // - Else if last visit > 1 year ago -> 'inactive'
+        // - Else -> 'active'
+        let newStatus = "active";
+        if (agg.hasOverdue) {
+          newStatus = "overdue";
+        } else if (effectiveLastVisit) {
+          const lastVisitDate = new Date(`${effectiveLastVisit}T00:00:00`);
+          const oneYearAgo = new Date();
+          oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+          if (lastVisitDate < oneYearAgo) {
+            newStatus = "inactive";
+          }
+        }
+
+        return {
+          ...patient,
+          balance: agg.totalBalance,
+          status: newStatus,
+          lastVisit: effectiveLastVisit,
+        } as any;
+      });
+    }
+
     if (status && status !== "all") {
       active = active.filter((patient) => patient.status === status);
     }
@@ -407,16 +509,91 @@ export const getPatientById = async (
   res: Response<ApiResponse<Patient | null>>
 ) => {
   try {
-    const patient = await prisma.patient.findUnique({ where: { id: req.params.id } });
+    const patient = await prisma.patient.findUnique({ where: { id: req.params.id } }) as any;
 
     if (!patient || patient.deleted) {
       return res.status(404).json({ success: false, message: "Patient not found" });
     }
 
+    // Compute appointments-based balance and overdue flag for this patient
+    const todayStr = new Date().toISOString().split("T")[0];
+    const appts = await prisma.appointment.findMany({
+      where: { deleted: false, patientId: patient.id },
+      select: { id: true, price: true, discount: true, status: true, date: true, paymentStatus: true, balance: true, totalPaid: true },
+    });
+
+    let totalBalance = 0;
+    let hasOverdue = false;
+    let lastCompletedDate: string | null = null;
+
+    const apptIds = appts.map((a) => a.id).filter(Boolean) as string[];
+    const payments = apptIds.length
+      ? await prisma.payment.findMany({ where: { deleted: false, appointmentId: { in: apptIds } }, select: { appointmentId: true, amount: true } })
+      : [];
+
+    const paymentSums: Record<string, number> = {};
+    for (const p of payments) {
+      const aid = p.appointmentId as string;
+      paymentSums[aid] = (paymentSums[aid] || 0) + Number(p.amount || 0);
+    }
+
+    for (const a of appts) {
+    // Exclude cart appointments from billing/outstanding calculations
+    if (isPatientCartStatus(a.status)) continue;
+    const price = Number((a as any).price ?? 0) || 0;
+      const discount = Number((a as any).discount ?? 0) || 0;
+      const totalDue = Math.max(0, price - discount);
+
+      // Compute outstanding robustly (payments first, then appointment.balance,
+      // then fallback to difference).
+      const paid = paymentSums[a.id] || 0;
+      let outstanding = 0;
+      const EPS = 0.01;
+      if (paid + EPS >= totalDue) {
+        outstanding = 0;
+      } else if (a.balance !== undefined && a.balance !== null) {
+        outstanding = Math.max(0, Number((a as any).balance) || 0);
+      } else {
+        outstanding = Math.max(0, totalDue - paid);
+      }
+
+      totalBalance += outstanding;
+
+      const aptStatus = String(a.status || "").toLowerCase();
+      const isCancelled = aptStatus === "cancelled";
+      const isPast = a.date ? a.date < todayStr : false;
+      const aptPaymentStatus = String((a as any).paymentStatus || "").toLowerCase();
+      // Mark overdue only when appointment paymentStatus is 'overdue'
+      if (!isCancelled && aptPaymentStatus === "overdue") hasOverdue = true;
+      if (aptStatus === "completed" && a.date) {
+        if (!lastCompletedDate || a.date > lastCompletedDate) lastCompletedDate = a.date;
+      }
+    }
+
+    const effectiveLastVisit = patient.lastVisit || lastCompletedDate || null;
+    // Compute status deterministically (server authoritative)
+    // Overdue appointments take precedence, otherwise inactive if last visit > 1 year, else active
+    let newStatus = "active";
+    if (hasOverdue) {
+      newStatus = "overdue";
+    } else if (effectiveLastVisit) {
+      const lastVisitDate = new Date(`${effectiveLastVisit}T00:00:00`);
+      const oneYearAgo = new Date();
+      oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+      if (lastVisitDate < oneYearAgo) newStatus = "inactive";
+    }
+
+    const patientForResponse = {
+      ...patient,
+      balance: totalBalance,
+      status: newStatus,
+      lastVisit: effectiveLastVisit,
+    };
+
     res.json({
       success: true,
       message: "Patient retrieved successfully",
-      data: stripPassword(patient) as unknown as Patient,
+      data: stripPassword(patientForResponse) as unknown as Patient,
     });
   } catch (error) {
     console.error("Error fetching patient:", error);

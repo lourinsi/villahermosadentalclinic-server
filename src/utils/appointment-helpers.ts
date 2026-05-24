@@ -1,5 +1,6 @@
 import { Appointment } from "../types/appointment";
 import { isPatientCartStatus } from "../constants/appointmentStatuses";
+import { normalizeAppointmentDuration } from "./appointment-durations";
 
 /**
  * Checks for appointment conflicts for a specific doctor
@@ -20,7 +21,7 @@ export const hasConflict = (
   };
 
   const newStart = timeToMinutes(newTime);
-  const duration = Number(newDuration) || 60;
+  const duration = normalizeAppointmentDuration(newDuration);
   const newEnd = newStart + duration;
 
   return appointments.some((apt) => {
@@ -47,7 +48,7 @@ export const hasConflict = (
     }
 
     const aptStart = timeToMinutes(apt.time);
-    const aptDuration = Number(apt.duration) || 60;
+    const aptDuration = normalizeAppointmentDuration(apt.duration);
     const aptEnd = aptStart + aptDuration;
 
     // Overlap condition: (newStart < aptEnd) && (newEnd > aptStart)

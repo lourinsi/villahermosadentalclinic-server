@@ -7,6 +7,7 @@ import {
   getAppointmentPrice,
 } from "../utils/appointment-types";
 import { hasConflict } from "../utils/appointment-helpers";
+import { normalizeAppointmentDuration } from "../utils/appointment-durations";
 import {
   CART_APPOINTMENT_STATUS,
   isPatientCartStatus,
@@ -102,7 +103,7 @@ const buildAppointmentCreateData = (appointment: Appointment) => {
     price,
     discount,
     doctor: appointment.doctor || "",
-    duration: appointment.duration || 60,
+    duration: normalizeAppointmentDuration(appointment.duration),
     notes: appointment.notes || "",
     serviceType: appointment.serviceType || null,
     status,
@@ -146,6 +147,9 @@ const buildAppointmentUpdateData = (updates: Partial<Appointment>) => {
     if (Object.prototype.hasOwnProperty.call(updates, field)) {
       data[field] = (updates as any)[field];
     }
+  }
+  if (Object.prototype.hasOwnProperty.call(data, "duration")) {
+    data.duration = normalizeAppointmentDuration(data.duration);
   }
   data.updatedAt = new Date();
   return data;
@@ -212,7 +216,7 @@ const cancelOverlappingPendingAppointments = async (
   if (isPatientCartStatus(normalizedNewStatus) || normalizedNewStatus === "cancelled") return;
 
   const newStart = timeToMinutes(newAppointment.time);
-  const newEnd = newStart + (Number(newAppointment.duration) || 60);
+  const newEnd = newStart + normalizeAppointmentDuration(newAppointment.duration);
   const newDoctorNorm = normalizeDoctorName(newAppointment.doctor || "");
 
   for (const apt of appointments) {
@@ -231,7 +235,7 @@ const cancelOverlappingPendingAppointments = async (
     if (!isSamePatient && !isSameDoctor) continue;
 
     const aptStart = timeToMinutes(apt.time);
-    const aptEnd = aptStart + (Number(apt.duration) || 60);
+    const aptEnd = aptStart + normalizeAppointmentDuration(apt.duration);
     if (!(newStart < aptEnd && newEnd > aptStart) || !apt.id) continue;
 
     const previousState = { ...apt };
@@ -306,13 +310,15 @@ export const addAppointment = async (
       });
     }
 
+    appointmentInput.duration = normalizeAppointmentDuration(appointmentInput.duration);
+
     if (
       !isSeeding &&
       hasConflict(
         appointments,
         appointmentInput.date,
         appointmentInput.time,
-        appointmentInput.duration || 60,
+        appointmentInput.duration,
         appointmentInput.doctor || "",
         undefined,
         appointmentInput.patientId
@@ -532,12 +538,32 @@ export const getAppointments = async (
     const pageData = shouldPaginate
       ? filtered.slice((pageNum - 1) * limitNum, (pageNum - 1) * limitNum + limitNum)
       : filtered;
+    const patientIds = Array.from(
+      new Set(pageData.map((appointment) => appointment.patientId).filter(Boolean))
+    );
+    const patientProfiles = isGlobal || patientIds.length === 0
+      ? new Map<string, string | null>()
+      : new Map(
+          (
+            await prisma.patient.findMany({
+              where: { id: { in: patientIds }, deleted: false },
+              select: { id: true, profilePicture: true },
+            })
+          ).map((patient) => [patient.id, patient.profilePicture || null])
+        );
 
     const response: ApiResponse<Appointment[]> = {
       success: true,
       message: "Appointments retrieved successfully",
       data: pageData.map((appointment) => ({
         ...appointment,
+        patientProfile: patientProfiles.get(appointment.patientId) || null,
+        patientProfilePicture: patientProfiles.get(appointment.patientId) || null,
+        profilePicture: patientProfiles.get(appointment.patientId) || null,
+        patient: {
+          id: appointment.patientId,
+          profilePicture: patientProfiles.get(appointment.patientId) || null,
+        },
         status: normalizeStatus(appointment.status),
       })),
     };
@@ -677,6 +703,10 @@ export const updateAppointment = async (
       id: oldAppointment.id,
       updatedAt: new Date(),
     };
+    updatedAppointment.duration = normalizeAppointmentDuration(updatedAppointment.duration);
+    if (updates.duration !== undefined) {
+      updates.duration = updatedAppointment.duration;
+    }
     const restrictedStatus = getPastRestrictedAppointmentStatus(
       updatedAppointment.date,
       updatedAppointment.status
@@ -698,7 +728,7 @@ export const updateAppointment = async (
           appointments,
           updatedAppointment.date,
           updatedAppointment.time,
-          updatedAppointment.duration || 60,
+          updatedAppointment.duration,
           updatedAppointment.doctor || "",
           id,
           updatedAppointment.patientId
@@ -946,7 +976,9 @@ export const bookPublicAppointment = async (
     );
 
     // Conflict check
-    if (hasConflict(appointments, date, time, duration || 30, doctor || "")) {
+    const appointmentDuration = normalizeAppointmentDuration(duration);
+
+    if (hasConflict(appointments, date, time, appointmentDuration, doctor || "")) {
       return res.status(409).json({
         success: false,
         message: "The selected time is no longer available. Please choose another time.",
@@ -960,7 +992,7 @@ export const bookPublicAppointment = async (
       patientName: `${patient.firstName || firstName} ${patient.lastName || lastName}`.trim(),
       date,
       time,
-      duration: duration || 30,
+      duration: appointmentDuration,
       type,
       customType: customType || "",
       price: clientPrice ?? getAppointmentPrice(type),
@@ -1070,7 +1102,9 @@ export const fetchAppointmentLogs = async (req: Request, res: Response) => {
           // ignore invalid token
         }
       }
-    } catch (e) {}
+    } catch {
+      // ignore auth cookie/header parsing failures
+    }
 
     const appointment = await prisma.appointment.findUnique({ where: { id } });
     if (!appointment || appointment.deleted) return res.status(404).json({ success: false, message: "Appointment not found" });
@@ -1110,7 +1144,9 @@ export const fetchPaymentLogs = async (req: Request, res: Response) => {
           // ignore invalid token
         }
       }
-    } catch (e) {}
+    } catch {
+      // ignore auth cookie/header parsing failures
+    }
 
     const appointment = await prisma.appointment.findUnique({ where: { id } });
     if (!appointment || appointment.deleted) return res.status(404).json({ success: false, message: "Appointment not found" });
