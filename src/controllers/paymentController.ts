@@ -26,12 +26,21 @@ const paymentStatusFor = (totalPaid: number, balance: number): string => {
   return "unpaid";
 };
 
-const appointmentData = (appointment: any) => ({
+const appointmentData = (appointment: any, previousState?: any) => ({
   patientName: appointment.patientName,
   date: appointment.date,
   time: appointment.time,
   type: getAppointmentTypeName(appointment.type, appointment.customType),
   doctor: appointment.doctor,
+  duration: appointment.duration,
+  price: appointment.price,
+  discount: appointment.discount,
+  balance: appointment.balance,
+  totalPaid: appointment.totalPaid,
+  status: appointment.status,
+  paymentStatus: appointment.paymentStatus,
+  previousState,
+  newState: appointment,
 });
 
 const isStaffRole = (req: Request): boolean => {
@@ -179,7 +188,7 @@ export const createPayment = async (req: Request, res: Response<ApiResponse<any>
         oldStatus,
         updatedAppointment.status,
         recipients,
-        appointmentData(updatedAppointment)
+        appointmentData(updatedAppointment, oldAppointment)
       );
     }
     if (updatedAppointment.paymentStatus !== oldPaymentStatus) {
@@ -189,7 +198,7 @@ export const createPayment = async (req: Request, res: Response<ApiResponse<any>
         oldPaymentStatus,
         updatedAppointment.paymentStatus,
         recipients,
-        appointmentData(updatedAppointment)
+        appointmentData(updatedAppointment, oldAppointment)
       );
     }
     if (payAmount > 0) {
@@ -197,7 +206,7 @@ export const createPayment = async (req: Request, res: Response<ApiResponse<any>
         appointmentId,
         payAmount,
         recipients,
-        appointmentData(updatedAppointment),
+        appointmentData(updatedAppointment, oldAppointment),
         newPayment.id
       );
     }
@@ -365,7 +374,7 @@ export const updatePayment = async (req: Request, res: Response<ApiResponse<any>
 
         const recipients = await resolveRecipients(savedAppointment);
         if (amountDiff > 0) {
-          await notifyPaymentReceived(oldPayment.appointmentId, amountDiff, recipients, appointmentData(savedAppointment), id);
+          await notifyPaymentReceived(oldPayment.appointmentId, amountDiff, recipients, appointmentData(savedAppointment, oldAppointment), id);
         }
         if (savedAppointment.paymentStatus !== oldPaymentStatus) {
           await notifyStatusChange(
@@ -374,7 +383,7 @@ export const updatePayment = async (req: Request, res: Response<ApiResponse<any>
             oldPaymentStatus,
             savedAppointment.paymentStatus,
             recipients,
-            appointmentData(savedAppointment)
+            appointmentData(savedAppointment, oldAppointment)
           );
         }
       }
@@ -464,7 +473,7 @@ export const deletePayment = async (req: Request, res: Response<ApiResponse<any>
           oldPaymentStatus,
           savedAppointment.paymentStatus,
           await resolveRecipients(savedAppointment),
-          appointmentData(savedAppointment)
+          appointmentData(savedAppointment, oldAppointment)
         );
       }
     }

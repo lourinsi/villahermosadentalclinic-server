@@ -17,7 +17,7 @@ import {
   notifyAppointmentChange,
   notifyStatusChange,
   notifyPaymentReceived,
-  updateNotificationMetadata,
+  notifyAppointmentDetailsChange,
   resolveRecipients,
 } from "../utils/notifications";
 import { createAppointmentLog, getAppointmentLogs } from "../utils/appointmentLogs";
@@ -74,13 +74,22 @@ const isStaffRole = (req: Request): boolean => {
 const isCashPaymentMethod = (method: unknown): boolean =>
   String(method || "").trim().toLowerCase() === "cash";
 
-const appointmentData = (appointment: Appointment) => ({
+const appointmentData = (appointment: Appointment, previousState?: Appointment) => ({
   patientName: appointment.patientName,
   date: appointment.date,
   time: appointment.time,
   type: getAppointmentTypeName(appointment.type, appointment.customType),
   doctor: appointment.doctor,
+  duration: appointment.duration,
+  price: appointment.price,
+  discount: appointment.discount,
+  balance: appointment.balance,
+  totalPaid: appointment.totalPaid,
+  status: appointment.status,
+  paymentStatus: appointment.paymentStatus,
   cancellationReason: appointment.cancellationReason,
+  previousState,
+  newState: appointment,
 });
 
 const buildAppointmentCreateData = (appointment: Appointment) => {
@@ -792,47 +801,32 @@ export const updateAppointment = async (
     const recipients = await resolveRecipients(saved);
 
     if (paymentAmount > 0) {
-      await notifyPaymentReceived(saved.id || "", paymentAmount, recipients, appointmentData(saved), `update_${saved.id}_${Date.now()}`);
+      await notifyPaymentReceived(saved.id || "", paymentAmount, recipients, appointmentData(saved, oldAppointment), `update_${saved.id}_${Date.now()}`);
     }
 
-    if (updates.status) {
-      await notifyStatusChange(saved.id || "", "status", oldStatus, updates.status, recipients, appointmentData(saved));
+    if (updates.status && updates.status !== oldStatus) {
+      await notifyStatusChange(saved.id || "", "status", oldStatus, updates.status, recipients, appointmentData(saved, oldAppointment));
     }
 
     if (updates.paymentStatus && updates.paymentStatus !== oldPaymentStatus) {
-      await notifyStatusChange(saved.id || "", "payment", oldPaymentStatus, updates.paymentStatus, recipients, appointmentData(saved));
+      await notifyStatusChange(saved.id || "", "payment", oldPaymentStatus, updates.paymentStatus, recipients, appointmentData(saved, oldAppointment));
     }
 
-    if (!updates.status && !updates.paymentStatus) {
-      const detailFieldsChanged =
-        updates.date ||
-        updates.time ||
-        updates.duration !== undefined ||
-        updates.doctor ||
-        updates.type !== undefined ||
-        updates.customType ||
-        updates.notes;
+    const detailFieldsChanged =
+      Object.prototype.hasOwnProperty.call(updates, "date") ||
+      Object.prototype.hasOwnProperty.call(updates, "time") ||
+      Object.prototype.hasOwnProperty.call(updates, "duration") ||
+      Object.prototype.hasOwnProperty.call(updates, "doctor") ||
+      Object.prototype.hasOwnProperty.call(updates, "type") ||
+      Object.prototype.hasOwnProperty.call(updates, "customType") ||
+      Object.prototype.hasOwnProperty.call(updates, "price") ||
+      Object.prototype.hasOwnProperty.call(updates, "discount") ||
+      Object.prototype.hasOwnProperty.call(updates, "notes") ||
+      Object.prototype.hasOwnProperty.call(updates, "patientId") ||
+      Object.prototype.hasOwnProperty.call(updates, "patientName");
 
-      if (detailFieldsChanged && saved.id) {
-        await Promise.all(
-          recipients.map((userId) =>
-            updateNotificationMetadata(userId, saved.id!, {
-              message: `Your appointment on ${saved.date} at ${saved.time} has been updated.`,
-              metadata: {
-                appointmentDate: saved.date,
-                appointmentTime: saved.time,
-                changedFields: {
-                  date: updates.date,
-                  time: updates.time,
-                  doctor: updates.doctor,
-                  notes: updates.notes,
-                  updatedAt: new Date().toISOString(),
-                },
-              },
-            })
-          )
-        );
-      }
+    if (detailFieldsChanged && saved.id) {
+      await notifyAppointmentDetailsChange(saved.id, recipients, appointmentData(saved, oldAppointment));
     }
 
     res.json({
