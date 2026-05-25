@@ -17,9 +17,12 @@ export const getNotifications = async (
   res: Response<ApiResponse<Notification[]>>
 ) => {
   try {
-    const { userId, type, includeDeleted } = req.query as Record<string, string>;
+    const { userId, type, includeDeleted, limit } = req.query as Record<string, string>;
     const shouldIncludeDeleted =
       includeDeleted === "true" || includeDeleted === "True" || includeDeleted === "1";
+    const take = limit
+      ? Math.max(1, Math.min(100, parseInt(limit, 10) || 20))
+      : undefined;
 
     const notifications = await prisma.notification.findMany({
       where: {
@@ -28,6 +31,7 @@ export const getNotifications = async (
         ...(type ? { type } : {}),
       },
       orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+      ...(take ? { take } : {}),
     });
 
     res.json({

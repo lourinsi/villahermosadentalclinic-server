@@ -1,6 +1,8 @@
 import { Appointment } from "../types/appointment";
 import { normalizeStatus } from "../constants/appointmentStatuses";
 import { createAppointmentLog } from "./appointmentLogs";
+import { getAppointmentTypeName } from "./appointment-types";
+import { notifyStatusChange, resolveRecipients } from "./notifications";
 import { prisma } from "../lib/prisma";
 
 const TBD_STATUS = "tbd";
@@ -13,6 +15,24 @@ interface LifecycleResult {
 }
 
 const toAppointment = (appointment: unknown): Appointment => appointment as Appointment;
+
+const appointmentNotificationData = (appointment: Appointment, previousState: Appointment) => ({
+  patientName: appointment.patientName,
+  date: appointment.date,
+  time: appointment.time,
+  type: getAppointmentTypeName(appointment.type, appointment.customType),
+  doctor: appointment.doctor,
+  duration: appointment.duration,
+  price: appointment.price,
+  discount: appointment.discount,
+  balance: appointment.balance,
+  totalPaid: appointment.totalPaid,
+  status: appointment.status,
+  paymentStatus: appointment.paymentStatus,
+  cancellationReason: appointment.cancellationReason,
+  previousState,
+  newState: appointment,
+});
 
 const parseAppointmentDate = (dateValue?: string): Date | null => {
   const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateValue || "");
@@ -93,6 +113,15 @@ export const markPastAppointmentsAsTbd = async (
       "status_change",
       0,
       "Automatically marked TBD because the appointment date passed without completion or cancellation."
+    );
+
+    await notifyStatusChange(
+      appointment.id,
+      "status",
+      normalizeStatus(previousState.status),
+      TBD_STATUS,
+      await resolveRecipients(appointment),
+      appointmentNotificationData(appointment, previousState)
     );
   }
 

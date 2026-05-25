@@ -19,6 +19,13 @@ export interface Appointment {
   paymentMethod?: string; // Payment method (e.g., 'cash', 'card', 'check')
   balance?: number;
   totalPaid?: number;
+  patientProfile?: string | null;
+  patientProfilePicture?: string | null;
+  profilePicture?: string | null;
+  patient?: {
+    id?: string;
+    profilePicture?: string | null;
+  };
   // Deprecated: transactions are now stored in payments collection. Keep for backward compat only.
   transactions?: {
     id: string;

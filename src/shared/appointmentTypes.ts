@@ -22,9 +22,9 @@ export const APPOINTMENT_TYPES = [
 export const APPOINTMENT_TYPE_OPTIONS: AppointmentTypeOption[] = [
   { id: 0, value: "Routine Cleaning", label: "Routine Cleaning", price: 1500, duration: 30 },
   { id: 1, value: "Checkup", label: "Checkup", price: 500, duration: 30 },
-  { id: 2, value: "Filling", label: "Filling", price: 1200, duration: 45 },
-  { id: 3, value: "Root Canal", label: "Root Canal", price: 5000, duration: 60 },
-  { id: 4, value: "Extraction", label: "Extraction", price: 1500, duration: 45 },
+  { id: 2, value: "Filling", label: "Filling", price: 1200, duration: 60 },
+  { id: 3, value: "Root Canal", label: "Root Canal", price: 5000, duration: 90 },
+  { id: 4, value: "Extraction", label: "Extraction", price: 1500, duration: 60 },
   { id: 5, value: "Whitening", label: "Whitening", price: 3000, duration: 60 },
   { id: 6, value: "Other", label: "Other", duration: 30 }
 ];
