@@ -534,7 +534,7 @@ export const getPatientById = async (
   res: Response<ApiResponse<Patient | null>>
 ) => {
   try {
-    const patient = await prisma.patient.findUnique({ where: { id: req.params.id } }) as any;
+    const patient = await prisma.patient.findUnique({ where: { id: req.params.id as string } }) as any;
 
     if (!patient || patient.deleted) {
       return res.status(404).json({ success: false, message: "Patient not found" });
@@ -605,7 +605,7 @@ export const updatePatient = async (
   res: Response<ApiResponse<Patient | null>>
 ) => {
   try {
-    const patient = await prisma.patient.findUnique({ where: { id: req.params.id } });
+    const patient = await prisma.patient.findUnique({ where: { id: req.params.id as string } });
     if (!patient || patient.deleted) {
       return res.status(404).json({ success: false, message: "Patient not found" });
     }
@@ -620,7 +620,7 @@ export const updatePatient = async (
     }
 
     const updatedPatient = await prisma.patient.update({
-      where: { id: req.params.id },
+      where: { id: req.params.id as string },
       data: updateData as any,
     });
 
@@ -644,7 +644,7 @@ export const getQuestionnaire = async (
   res: Response<ApiResponse<any>>
 ) => {
   try {
-    const patient = await prisma.patient.findUnique({ where: { id: req.params.patientId } });
+    const patient = await prisma.patient.findUnique({ where: { id: req.params.patientId as string } });
 
     if (!patient || patient.deleted) {
       return res.status(200).json({
@@ -708,7 +708,7 @@ export const upsertQuestionnaire = async (
   res: Response<ApiResponse<Patient | null>>
 ) => {
   try {
-    const patient = await prisma.patient.findUnique({ where: { id: req.params.patientId } });
+    const patient = await prisma.patient.findUnique({ where: { id: req.params.patientId as string } });
     if (!patient || patient.deleted) {
       return res.status(404).json({ success: false, message: "Patient not found" });
     }
@@ -749,7 +749,7 @@ export const upsertQuestionnaire = async (
     };
 
     const updatedPatient = await prisma.patient.update({
-      where: { id: req.params.patientId },
+      where: { id: req.params.patientId as string },
       data: updateData,
     });
 
@@ -773,13 +773,13 @@ export const deletePatient = async (
   res: Response<ApiResponse<null>>
 ) => {
   try {
-    const patient = await prisma.patient.findUnique({ where: { id: req.params.id } });
+    const patient = await prisma.patient.findUnique({ where: { id: req.params.id as string } });
     if (!patient || patient.deleted) {
       return res.status(404).json({ success: false, message: "Patient not found" });
     }
 
     await prisma.patient.update({
-      where: { id: req.params.id },
+      where: { id: req.params.id as string },
       data: { deleted: true, deletedAt: new Date(), updatedAt: new Date() },
     });
 
@@ -800,7 +800,7 @@ export const changePassword = async (
 ) => {
   try {
     const { currentPassword, newPassword } = req.body;
-    const patient = await prisma.patient.findUnique({ where: { id: req.params.id } });
+    const patient = await prisma.patient.findUnique({ where: { id: req.params.id as string } });
 
     if (!patient || patient.deleted) {
       return res.status(404).json({ success: false, message: "Patient not found" });
@@ -823,7 +823,7 @@ export const changePassword = async (
 
     const hashedPassword = await bcrypt.hash(newPassword, await bcrypt.genSalt(10));
     await prisma.patient.update({
-      where: { id: req.params.id },
+      where: { id: req.params.id as string },
       data: { password: hashedPassword, updatedAt: new Date() },
     });
 
