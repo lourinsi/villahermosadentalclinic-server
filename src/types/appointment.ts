@@ -15,7 +15,7 @@ export interface Appointment {
   // Status is flexible to accept any value from the JSON configuration
   status?: string;
   cancellationReason?: string; // Reason why appointment was cancelled (e.g., "Another appointment was scheduled for this time slot")
-  paymentStatus?: "paid" | "unpaid" | "overdue" | "half-paid" | "over-paid";
+  paymentStatus?: "paid" | "unpaid" | "overdue" | "half-paid" | "pay-at-clinic" | "over-paid";
   paymentMethod?: string; // Payment method (e.g., 'cash', 'card', 'check')
   balance?: number;
   totalPaid?: number;

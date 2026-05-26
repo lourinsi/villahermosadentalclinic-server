@@ -6,33 +6,14 @@ import {
   CART_APPOINTMENT_STATUS_LABEL,
   normalizeStatus,
 } from "../constants/appointmentStatuses";
+import {
+  applyDefaultAppointmentStatusColors,
+  applyDefaultPaymentStatusColors,
+  normalizePaymentStatus,
+} from "../shared/statusColors";
 import { prisma } from "../lib/prisma";
 
 const router = Router();
-
-const getDefaultBgColor = (status: string): string => {
-  const colorMap: Record<string, string> = {
-    scheduled: "bg-emerald-100",
-    [CART_APPOINTMENT_STATUS]: "bg-orange-100",
-    reserved: "bg-amber-100",
-    cancelled: "bg-red-100",
-    completed: "bg-blue-100",
-    tbd: "bg-red-100",
-  };
-  return colorMap[status] || "bg-gray-100";
-};
-
-const getDefaultTextColor = (status: string): string => {
-  const colorMap: Record<string, string> = {
-    scheduled: "text-emerald-700",
-    [CART_APPOINTMENT_STATUS]: "text-orange-700",
-    reserved: "text-amber-700",
-    cancelled: "text-red-700",
-    completed: "text-blue-700",
-    tbd: "text-red-700",
-  };
-  return colorMap[status] || "text-gray-700";
-};
 
 router.get("/appointments", async (req: Request, res: Response) => {
   try {
@@ -45,16 +26,19 @@ router.get("/appointments", async (req: Request, res: Response) => {
       const isCartStatus = value === CART_APPOINTMENT_STATUS;
       if (appointmentStatusesByValue.has(value)) continue;
 
-      appointmentStatusesByValue.set(value, {
-        key: status.key,
+      appointmentStatusesByValue.set(
         value,
-        label: isCartStatus ? CART_APPOINTMENT_STATUS_LABEL : status.label,
-        description: isCartStatus
-          ? "In the patient's appointment cart awaiting checkout"
-          : status.description,
-        bgColor: isCartStatus ? getDefaultBgColor(value) : status.bgColor || getDefaultBgColor(value),
-        textColor: isCartStatus ? getDefaultTextColor(value) : status.textColor || getDefaultTextColor(value),
-      });
+        applyDefaultAppointmentStatusColors({
+          key: status.key,
+          value,
+          label: isCartStatus ? CART_APPOINTMENT_STATUS_LABEL : status.label,
+          description: isCartStatus
+            ? "In the patient's appointment cart awaiting checkout"
+            : status.description,
+          bgColor: status.bgColor,
+          textColor: status.textColor,
+        })
+      );
     }
 
     const appointmentStatuses = Array.from(appointmentStatusesByValue.values());
@@ -74,11 +58,34 @@ router.get("/appointments", async (req: Request, res: Response) => {
   }
 });
 
-router.get("/payments", (req: Request, res: Response) => {
+router.get("/payments", async (req: Request, res: Response) => {
   try {
+    const config = await prisma.statusConfig.findUnique({ where: { key: "payment" } });
+    const rawStatuses = Array.isArray(config?.value) ? config.value : PAYMENT_STATUSES;
+    const paymentStatusesByValue = new Map<string, any>();
+
+    for (const status of rawStatuses as any[]) {
+      const value = normalizePaymentStatus(status.value);
+      if (!value || paymentStatusesByValue.has(value)) continue;
+
+      paymentStatusesByValue.set(
+        value,
+        applyDefaultPaymentStatusColors({
+          key: status.key,
+          value,
+          label: status.label,
+          description: status.description,
+          bgColor: status.bgColor,
+          textColor: status.textColor,
+        })
+      );
+    }
+
+    const paymentStatuses = Array.from(paymentStatusesByValue.values());
+
     res.json({
       success: true,
-      data: PAYMENT_STATUSES,
+      data: paymentStatuses,
       message: "Payment statuses retrieved successfully",
     });
   } catch (error) {

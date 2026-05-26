@@ -1,3 +1,21 @@
+export type PaymentStatus =
+  | "paid"
+  | "unpaid"
+  | "half-paid"
+  | "overdue"
+  | "pay-at-clinic"
+  | "over-paid"
+  | (string & {});
+
+export interface PaymentStatusOption {
+  key: number;
+  value: PaymentStatus;
+  label: string;
+  description: string;
+  bgColor: string;
+  textColor: string;
+}
+
 export interface Payment {
   id: string;
   appointmentId: string;
@@ -8,7 +26,7 @@ export interface Payment {
   date: string;
   transactionId: string;
   notes?: string;
-  status?: string;
+  status?: PaymentStatus;
   createdAt?: Date;
   updatedAt?: Date;
   deleted?: boolean;

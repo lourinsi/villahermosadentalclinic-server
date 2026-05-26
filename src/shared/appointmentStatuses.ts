@@ -1,3 +1,5 @@
+import { getDefaultAppointmentStatusColors } from "./statusColors";
+
 export interface AppointmentStatusOption {
   key: number;
   value: string;
@@ -16,48 +18,42 @@ export const APPOINTMENT_STATUSES: AppointmentStatusOption[] = [
     value: "scheduled",
     label: "Scheduled",
     description: "Confirmed and scheduled",
-    bgColor: "bg-emerald-100",
-    textColor: "text-emerald-700"
+    ...getDefaultAppointmentStatusColors("scheduled")
   },
   {
     key: 2,
     value: CART_APPOINTMENT_STATUS,
     label: CART_APPOINTMENT_STATUS_LABEL,
     description: "In the patient's appointment cart awaiting checkout",
-    bgColor: "bg-orange-100",
-    textColor: "text-orange-700"
+    ...getDefaultAppointmentStatusColors(CART_APPOINTMENT_STATUS)
   },
   {
     key: 3,
     value: "reserved",
     label: "Reserved",
     description: "Reserved awaiting payment or clinic confirmation",
-    bgColor: "bg-amber-100",
-    textColor: "text-amber-700"
+    ...getDefaultAppointmentStatusColors("reserved")
   },
   {
     key: 4,
     value: "cancelled",
     label: "Cancelled",
     description: "Appointment cancelled",
-    bgColor: "bg-red-100",
-    textColor: "text-red-700"
+    ...getDefaultAppointmentStatusColors("cancelled")
   },
   {
     key: 5,
     value: "completed",
     label: "Completed",
     description: "Appointment completed",
-    bgColor: "bg-blue-100",
-    textColor: "text-blue-700"
+    ...getDefaultAppointmentStatusColors("completed")
   },
   {
     key: 6,
     value: "tbd",
     label: "TBD",
     description: "Past appointment awaiting completion status",
-    bgColor: "bg-red-100",
-    textColor: "text-red-700"
+    ...getDefaultAppointmentStatusColors("tbd")
   },
 ];
 
