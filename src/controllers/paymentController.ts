@@ -19,6 +19,7 @@ import {
 
 const toPayment = (payment: unknown): Payment => payment as Payment;
 const toAppointment = (appointment: unknown): any => appointment as any;
+type IdParams = { id: string };
 
 const paymentStatusFor = (totalPaid: number, balance: number): string => {
   if (balance <= 0) return "paid";
@@ -263,7 +264,7 @@ export const createPayment = async (req: Request, res: Response<ApiResponse<any>
 };
 
 export const getPaymentsByAppointment = async (
-  req: Request,
+  req: Request<IdParams>,
   res: Response<ApiResponse<Payment[]>>
 ) => {
   try {
@@ -283,7 +284,7 @@ export const getPaymentsByAppointment = async (
 };
 
 export const getPaymentsByPatient = async (
-  req: Request,
+  req: Request<IdParams>,
   res: Response<ApiResponse<Payment[]>>
 ) => {
   try {
@@ -302,7 +303,7 @@ export const getPaymentsByPatient = async (
   }
 };
 
-export const updatePayment = async (req: Request, res: Response<ApiResponse<any>>) => {
+export const updatePayment = async (req: Request<IdParams>, res: Response<ApiResponse<any>>) => {
   try {
     const { id } = req.params;
     const { amount, method, date, transactionId, notes, appointmentId } = req.body;
@@ -410,7 +411,7 @@ export const updatePayment = async (req: Request, res: Response<ApiResponse<any>
   }
 };
 
-export const deletePayment = async (req: Request, res: Response<ApiResponse<any>>) => {
+export const deletePayment = async (req: Request<IdParams>, res: Response<ApiResponse<any>>) => {
   try {
     const { id } = req.params;
     const payment = toPayment(await prisma.payment.findUnique({ where: { id } }));

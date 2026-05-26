@@ -46,6 +46,7 @@ const toStaff = (staff: unknown): Staff => staff as Staff;
 const toStaffFinancialRecord = (record: unknown): StaffFinancialRecord =>
   record as StaffFinancialRecord;
 const toAttendance = (record: unknown): Attendance => record as Attendance;
+type IdParams = { id: string };
 
 const currentMonthKey = () => {
   const now = new Date();
@@ -200,7 +201,7 @@ export const getPublicDoctors = async (
 };
 
 export const getStaffById = async (
-  req: Request,
+  req: Request<IdParams>,
   res: Response<ApiResponse<Staff | null>>
 ) => {
   try {
@@ -229,7 +230,7 @@ export const getStaffById = async (
 };
 
 export const updateStaff = async (
-  req: Request,
+  req: Request<IdParams>,
   res: Response<ApiResponse<Staff | null>>
 ) => {
   try {
@@ -262,7 +263,7 @@ export const updateStaff = async (
 };
 
 export const deleteStaff = async (
-  req: Request,
+  req: Request<IdParams>,
   res: Response<ApiResponse<null>>
 ) => {
   try {
@@ -376,7 +377,7 @@ export const getStaffFinancialRecords = async (
 };
 
 export const updateStaffFinancialRecord = async (
-  req: Request,
+  req: Request<IdParams>,
   res: Response<ApiResponse<StaffFinancialRecord>>
 ) => {
   try {
@@ -428,7 +429,7 @@ export const updateStaffFinancialRecord = async (
 };
 
 export const approveStaffFinancialRecord = async (
-  req: Request,
+  req: Request<IdParams>,
   res: Response<ApiResponse<StaffFinancialRecord>>
 ) => {
   try {
@@ -478,7 +479,7 @@ export const approveStaffFinancialRecord = async (
 };
 
 export const deleteStaffFinancialRecord = async (
-  req: Request,
+  req: Request<IdParams>,
   res: Response<ApiResponse<null>>
 ) => {
   try {
