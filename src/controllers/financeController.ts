@@ -14,6 +14,7 @@ import { getAppointmentTypeName } from "../utils/appointment-types";
 
 const toFinanceRecord = (record: unknown): FinanceRecord => record as FinanceRecord;
 const toDetailedExpense = (expense: unknown): DetailedExpense => expense as DetailedExpense;
+type IdParams = { id: string };
 const EXPENSE_COLORS = ["#ef4444", "#f97316", "#eab308", "#22c55e", "#06b6d4", "#3b82f6", "#8b5cf6", "#ec4899"];
 
 const toFiniteNumber = (value: unknown) => {
@@ -310,7 +311,7 @@ export const getAllFinanceRecords = async (
 };
 
 export const getFinanceRecordById = async (
-  req: Request,
+  req: Request<IdParams>,
   res: Response<ApiResponse<FinanceRecord | null>>
 ) => {
   try {
@@ -335,7 +336,7 @@ export const getFinanceRecordById = async (
 };
 
 export const updateFinanceRecord = async (
-  req: Request,
+  req: Request<IdParams>,
   res: Response<ApiResponse<FinanceRecord | null>>
 ) => {
   try {
@@ -375,7 +376,7 @@ export const updateFinanceRecord = async (
 };
 
 export const deleteFinanceRecord = async (
-  req: Request,
+  req: Request<IdParams>,
   res: Response<ApiResponse<null>>
 ) => {
   try {

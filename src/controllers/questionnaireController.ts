@@ -137,8 +137,9 @@ const toPatientUpdateData = (questionnaireData: QuestionnaireData) => ({
   weight: questionnaireData.weight,
   updatedAt: new Date(),
 });
+type PatientParams = { patientId: string };
 
-export const getQuestionnaire = async (req: Request, res: Response) => {
+export const getQuestionnaire = async (req: Request<PatientParams>, res: Response) => {
   try {
     const { patientId } = req.params;
     const questionnaire = await prisma.questionnaire.findUnique({ where: { patientId } });
@@ -174,7 +175,7 @@ export const getQuestionnaire = async (req: Request, res: Response) => {
   }
 };
 
-export const upsertQuestionnaire = async (req: Request, res: Response) => {
+export const upsertQuestionnaire = async (req: Request<PatientParams>, res: Response) => {
   try {
     const { patientId } = req.params;
     if (!patientId) {
@@ -231,7 +232,7 @@ export const upsertQuestionnaire = async (req: Request, res: Response) => {
   }
 };
 
-export const deleteQuestionnaire = async (req: Request, res: Response) => {
+export const deleteQuestionnaire = async (req: Request<PatientParams>, res: Response) => {
   try {
     const { patientId } = req.params;
     const questionnaire = await prisma.questionnaire.findUnique({ where: { patientId } });

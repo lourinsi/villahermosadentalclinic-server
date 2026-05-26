@@ -11,6 +11,7 @@ const toNotification = (notification: any): Notification => ({
   deletedAt: notification.deletedAt?.toISOString?.() || notification.deletedAt || undefined,
   metadata: notification.metadata as Notification["metadata"],
 });
+type IdParams = { id: string };
 
 export const getNotifications = async (
   req: Request,
@@ -119,7 +120,7 @@ export const addNotification = async (
 };
 
 export const updateNotification = async (
-  req: Request,
+  req: Request<IdParams>,
   res: Response<ApiResponse<Notification>>
 ) => {
   try {
@@ -161,7 +162,7 @@ export const updateNotification = async (
 };
 
 export const deleteNotification = async (
-  req: Request,
+  req: Request<IdParams>,
   res: Response<ApiResponse<null>>
 ) => {
   try {
@@ -240,7 +241,7 @@ export const deleteAllNotifications = async (
 };
 
 export const restoreNotification = async (
-  req: Request,
+  req: Request<IdParams>,
   res: Response<ApiResponse<Notification>>
 ) => {
   try {

@@ -6,6 +6,7 @@ import { prisma } from "../lib/prisma";
 const LOW_STOCK_THRESHOLD = 5;
 
 const toInventoryItem = (item: unknown): InventoryItem => item as InventoryItem;
+type IdParams = { id: string };
 
 export const createInventoryItem = async (
   req: Request,
@@ -98,7 +99,7 @@ export const getAllInventoryItems = async (
 };
 
 export const getInventoryItemById = async (
-  req: Request,
+  req: Request<IdParams>,
   res: Response<ApiResponse<InventoryItem | null>>
 ) => {
   try {
@@ -123,7 +124,7 @@ export const getInventoryItemById = async (
 };
 
 export const updateInventoryItem = async (
-  req: Request,
+  req: Request<IdParams>,
   res: Response<ApiResponse<InventoryItem | null>>
 ) => {
   try {
@@ -173,7 +174,7 @@ export const updateInventoryItem = async (
 };
 
 export const deleteInventoryItem = async (
-  req: Request,
+  req: Request<IdParams>,
   res: Response<ApiResponse<null>>
 ) => {
   try {

@@ -65,6 +65,7 @@ const resolvePublicAppointmentToken = (token: string): string | null => {
 };
 
 const toAppointment = (appointment: unknown): Appointment => appointment as Appointment;
+type IdParams = { id: string };
 
 const isStaffRole = (req: Request): boolean => {
   const role = String((req as any).user?.role || "").toLowerCase();
@@ -641,7 +642,7 @@ export const getPublicAppointmentAvailability = async (
 };
 
 export const getAppointmentById = async (
-  req: Request,
+  req: Request<IdParams>,
   res: Response<ApiResponse<Appointment | null>>
 ) => {
   try {
@@ -675,7 +676,7 @@ export const getAppointmentById = async (
 };
 
 export const updateAppointment = async (
-  req: Request,
+  req: Request<IdParams>,
   res: Response<ApiResponse<Appointment | null>>
 ) => {
   try {
@@ -845,7 +846,7 @@ export const updateAppointment = async (
 };
 
 export const deleteAppointment = async (
-  req: Request,
+  req: Request<IdParams>,
   res: Response<ApiResponse<null>>
 ) => {
   try {
@@ -1082,7 +1083,7 @@ export const bookPublicAppointment = async (
   }
 };
 
-export const fetchAppointmentLogs = async (req: Request, res: Response) => {
+export const fetchAppointmentLogs = async (req: Request<IdParams>, res: Response) => {
   try {
     const { id } = req.params;
     if (!id) return res.status(400).json({ success: false, message: "Appointment ID is required" });
@@ -1124,7 +1125,7 @@ export const fetchAppointmentLogs = async (req: Request, res: Response) => {
   }
 };
 
-export const fetchPaymentLogs = async (req: Request, res: Response) => {
+export const fetchPaymentLogs = async (req: Request<IdParams>, res: Response) => {
   try {
     const { id } = req.params;
     if (!id) return res.status(400).json({ success: false, message: "Appointment ID is required" });
