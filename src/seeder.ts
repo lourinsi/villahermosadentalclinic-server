@@ -930,8 +930,8 @@ async function main() {
   await prisma.appointmentLog.deleteMany({ where: { appointmentId: { in: seededAppointmentIds } } });
 
   // Create payments (one aggregated payment per appointment where applicable).
-  // Payment timestamps are placed shortly after the appointment creation time
-  // to keep appointment logs ordered (created -> payment -> current).
+  // Payment timestamps stay close to the appointment creation time so finance
+  // views can match them to the folded creation history event.
   const payments = appointments
     .filter((appointment) => appointment.totalPaid > 0)
     .map((appointment, index) => {
@@ -953,9 +953,14 @@ async function main() {
       };
     });
 
+  const paymentByAppointmentId = new Map(payments.map((payment) => [payment.appointmentId, payment]));
+
   // Appointment logs: create a single creation log per appointment.
-  // Each appointment gets exactly one log representing its original creation state.
+  // Seeded initial payments are folded into this creation log so history shows
+  // one event for "appointment created with payment applied".
   const appointmentLogs = appointments.map((appointment, index) => {
+    const payment = paymentByAppointmentId.get(appointment.id);
+    const seedPaymentAmount = payment ? Number(payment.amount || 0) : 0;
     const createdSnapshot: JsonRecord = {
       id: appointment.id,
       patientId: appointment.patientId,
@@ -964,10 +969,12 @@ async function main() {
       time: appointment.time,
       doctor: appointment.doctor,
       serviceType: appointment.serviceType,
-      // creation snapshot reflects no payments yet
-      paymentStatus: appointment.totalPaid > 0 ? "unpaid" : appointment.paymentStatus,
+      status: appointment.status,
+      paymentStatus: appointment.paymentStatus,
+      paymentMethod: appointment.paymentMethod,
       price: appointment.price,
-      balance: appointment.price,
+      balance: appointment.balance,
+      totalPaid: appointment.totalPaid,
     };
 
     return {
@@ -985,23 +992,15 @@ async function main() {
       changedByName: "Admin",
       changedAt: appointment.createdAt,
       changeType: "created",
-      amount: 0,
-      notes: "Seed appointment creation log.",
+      amount: seedPaymentAmount,
+      notes: seedPaymentAmount > 0
+        ? "Seed appointment creation with payment applied."
+        : "Seed appointment creation log.",
     };
   });
 
-  const paymentLogs = payments.map((payment, index) => ({
-    id: `${SEED_PREFIX}payment_log_${index + 1}`,
-    appointmentId: payment.appointmentId,
-    amount: payment.amount,
-    paymentMethod: payment.method,
-    paymentStatus: payment.status,
-    changedBy: "admin",
-    changedByName: "Admin",
-    changedAt: payment.createdAt,
-    previousBalance: Number((payment.appointmentSnapshot as JsonRecord).price || 0),
-    newBalance: Number((payment.appointmentSnapshot as JsonRecord).balance || 0),
-  }));
+  // Seed payment history rows are intentionally omitted so initial seeded
+  // payments do not appear as a second history event.
 
   const financeRecords = [
     ...payments.map((payment, index) => ({
@@ -1300,9 +1299,8 @@ async function main() {
   await createRecords(prisma.appointment, appointments);
   await createRecords(prisma.appointmentLog, appointmentLogs);
 
-  console.log("Creating payments and payment logs...");
+  console.log("Creating payments...");
   await createRecords(prisma.payment, payments);
-  await createRecords(prisma.paymentLog, paymentLogs);
 
   console.log("Creating finance, inventory, and staff records...");
   await createRecords(prisma.financeRecord, financeRecords);
