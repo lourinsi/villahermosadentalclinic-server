@@ -9,6 +9,7 @@ let ADMIN_PASSWORD_HASH: string;
 
 const TEST_DOCTOR_USERNAME = "doctor";
 const TEST_DOCTOR_PASSWORD = "password";
+const TEST_DOCTOR_STAFF_ID = "seed_staff_test_doctor";
 let TEST_DOCTOR_PASSWORD_HASH: string;
 
 const DEFAULT_DOCTOR_PASSWORD = "doctor123";
@@ -170,7 +171,7 @@ export const login = async (
       }
 
       const doctor = await prisma.staff.findFirst({
-        where: { name: "Dr. Test Doctor", deleted: false },
+        where: { id: TEST_DOCTOR_STAFF_ID, deleted: false },
       });
 
       if (!doctor) {

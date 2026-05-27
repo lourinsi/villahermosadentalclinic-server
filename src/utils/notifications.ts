@@ -3,6 +3,7 @@ import { NotificationType } from "../shared/notificationStatuses";
 import { getAppointmentTypeName } from "./appointment-types";
 import { prisma } from "../lib/prisma";
 import { isPatientCartStatus, normalizeStatus } from "../constants/appointmentStatuses";
+import { findDoctorForValue } from "./doctorIdentity";
 
 console.log("[notifications] SYSTEM LOADED - Prisma-backed");
 
@@ -522,23 +523,13 @@ export const resolveRecipients = async (appointment: any): Promise<string[]> => 
     recipients.add(appointment.patientId);
   }
 
-  if (appointment.doctor) {
-    const searchName = String(appointment.doctor).toLowerCase().trim();
-    const doctor = await prisma.staff.findFirst({
-      where: { deleted: false },
-    }).then(async () => {
-      const staff = await prisma.staff.findMany({ where: { deleted: false } });
-      return staff.find((s) => {
-        const staffName = s.name.toLowerCase().trim();
-        return (
-          staffName === searchName ||
-          staffName.replace(/^dr\.\s+/i, "") === searchName.replace(/^dr\.\s+/i, "")
-        );
-      });
-    });
+  const doctorKey = appointment.doctorId || appointment.doctorName || appointment.doctor;
+  if (doctorKey) {
+    const staff = await prisma.staff.findMany({ where: { deleted: false } });
+    const doctor = findDoctorForValue(staff, doctorKey);
 
     if (doctor?.id) {
-      recipients.add(doctor.id);
+      recipients.add(String(doctor.id));
     }
   }
 
@@ -579,11 +570,15 @@ export const notifyAppointmentChange = async (
     recipients.set(appointment.patientId, { title, message, isPatient: true });
   }
 
-  if (appointment.doctor) {
-    const staff = await prisma.staff.findMany({ where: { deleted: false } });
-    const doctor = staff.find((s) => s.name === appointment.doctor);
+  const doctorKey = appointment.doctorId || appointment.doctorName || appointment.doctor;
+  const staff = doctorKey ? await prisma.staff.findMany({ where: { deleted: false } }) : [];
+  const doctorRecord = findDoctorForValue(staff, doctorKey);
+  const appointmentDoctorName = String(doctorRecord?.name || appointment.doctor || "").trim();
+
+  if (doctorKey) {
+    const doctor = doctorRecord;
     if (doctor?.id) {
-      recipients.set(doctor.id, {
+      recipients.set(String(doctor.id), {
         title: isRequest ? "New Appointment Request" : "Appointment Update",
         message: `${appointment.patientName} has a ${appointment.status} appointment for ${serviceName} on ${appointment.date} at ${appointment.time}.`,
         isDoctor: true,
@@ -592,7 +587,7 @@ export const notifyAppointmentChange = async (
   }
 
   if (!recipients.has("admin")) {
-    const doctorText = appointment.doctor ? ` with ${formatDoctorName(appointment.doctor)}` : "";
+    const doctorText = appointmentDoctorName ? ` with ${formatDoctorName(appointmentDoctorName)}` : "";
     recipients.set("admin", {
       title: isRequest ? "New Appointment Request" : "Appointment Update",
       message: `${appointment.patientName} has a ${appointment.status} appointment${doctorText} for ${serviceName} on ${appointment.date} at ${appointment.time}.`,

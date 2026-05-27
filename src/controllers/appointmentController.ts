@@ -27,6 +27,19 @@ import {
   markPastAppointmentsAsTbd,
   readAppointmentsWithLifecycle,
 } from "../utils/appointmentStatusLifecycle";
+import {
+  areSameDoctorIdentity,
+  findDoctorForValue,
+  getDoctorSearchText,
+  withResolvedDoctor,
+  DoctorIdentity,
+} from "../utils/doctorIdentity";
+import {
+  getPatientDisplayName,
+  getPatientSearchText,
+  PatientIdentity,
+  withResolvedPatient,
+} from "../utils/patientIdentity";
 import { prisma } from "../lib/prisma";
 import jwt from "jsonwebtoken";
 
@@ -67,6 +80,89 @@ const resolvePublicAppointmentToken = (token: string): string | null => {
 const toAppointment = (appointment: unknown): Appointment => appointment as Appointment;
 type IdParams = { id: string };
 
+const getActiveDoctorStaff = async (): Promise<DoctorIdentity[]> =>
+  prisma.staff.findMany({
+    where: { deleted: false },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      profilePicture: true,
+      role: true,
+      specialization: true,
+    },
+  }) as Promise<DoctorIdentity[]>;
+
+const patientIdentitySelect = {
+  id: true,
+  name: true,
+  firstName: true,
+  lastName: true,
+  username: true,
+  email: true,
+  phone: true,
+  profilePicture: true,
+} as const;
+
+const getActivePatientIdentities = async (patientIds: string[]): Promise<PatientIdentity[]> => {
+  const ids = Array.from(
+    new Set(
+      patientIds
+        .map((id) => String(id || "").trim())
+        .filter((id) => id && id !== "Occupied" && id !== "No patient assigned")
+    )
+  );
+
+  if (ids.length === 0) return [];
+
+  return prisma.patient.findMany({
+    where: { id: { in: ids }, deleted: false },
+    select: patientIdentitySelect,
+  }) as Promise<PatientIdentity[]>;
+};
+
+const getActivePatientIdentity = async (patientId?: string | null): Promise<PatientIdentity | null> => {
+  const id = String(patientId || "").trim();
+  if (!id) return null;
+
+  return prisma.patient.findFirst({
+    where: { id, deleted: false },
+    select: patientIdentitySelect,
+  }) as Promise<PatientIdentity | null>;
+};
+
+const resolveAppointmentDoctorName = (
+  appointment: Partial<Appointment>,
+  doctorStaff: DoctorIdentity[]
+): { doctor: string; doctorId?: string } => {
+  const doctorValue = (appointment as any).doctorId || (appointment as any).doctorName || appointment.doctor;
+  const doctor = findDoctorForValue(doctorStaff, doctorValue);
+  return {
+    doctor: String(doctor?.name || appointment.doctor || "").trim(),
+    doctorId: doctor?.id ? String(doctor.id) : (appointment as any).doctorId,
+  };
+};
+
+const enrichAppointmentLogReferences = (
+  log: any,
+  doctorStaff: DoctorIdentity[],
+  patients: PatientIdentity[]
+) => ({
+  ...log,
+  previousState: log.previousState
+    ? withResolvedDoctor(
+        withResolvedPatient(log.previousState as Record<string, any>, patients),
+        doctorStaff
+      )
+    : log.previousState,
+  newState: log.newState
+    ? withResolvedDoctor(
+        withResolvedPatient(log.newState as Record<string, any>, patients),
+        doctorStaff
+      )
+    : log.newState,
+});
+
 const isStaffRole = (req: Request): boolean => {
   const role = String((req as any).user?.role || "").toLowerCase();
   return role === "admin" || role === "doctor";
@@ -76,6 +172,7 @@ const isCashPaymentMethod = (method: unknown): boolean =>
   String(method || "").trim().toLowerCase() === "cash";
 
 const appointmentData = (appointment: Appointment, previousState?: Appointment) => ({
+  patientId: appointment.patientId,
   patientName: appointment.patientName,
   date: appointment.date,
   time: appointment.time,
@@ -113,6 +210,7 @@ const buildAppointmentCreateData = (appointment: Appointment) => {
     price,
     discount,
     doctor: appointment.doctor || "",
+    doctorId: appointment.doctorId || null,
     duration: normalizeAppointmentDuration(appointment.duration),
     notes: appointment.notes || "",
     serviceType: appointment.serviceType || null,
@@ -140,6 +238,7 @@ const buildAppointmentUpdateData = (updates: Partial<Appointment>) => {
     "price",
     "discount",
     "doctor",
+    "doctorId",
     "duration",
     "notes",
     "serviceType",
@@ -170,20 +269,22 @@ const timeToMinutes = (timeStr: string): number => {
   return (hours || 0) * 60 + (minutes || 0);
 };
 
-const normalizeDoctorName = (name: string) =>
-  (name || "").replace(/^Dr\.\s+/i, "").toLowerCase().trim();
-
 const REQUEST_APPOINTMENT_STATUSES = new Set(["reserved", "to-pay", "half-paid", "tbd"]);
 const HISTORY_APPOINTMENT_STATUSES = new Set(["scheduled", "completed", "cancelled"]);
 
-const getAppointmentSortValue = (appointment: Appointment, sortBy?: string): string | number => {
+const getAppointmentSortValue = (
+  appointment: Appointment,
+  sortBy?: string,
+  doctorStaff: DoctorIdentity[] = [],
+  patients: PatientIdentity[] = []
+): string | number => {
   switch (sortBy) {
     case "patient":
-      return String(appointment.patientName || "").toLowerCase();
+      return String(withResolvedPatient(appointment as any, patients).patientName || "").toLowerCase();
     case "service":
       return getAppointmentTypeName(appointment.type, appointment.customType).toLowerCase();
     case "doctor":
-      return String(appointment.doctor || "").toLowerCase();
+      return String(withResolvedDoctor(appointment as any, doctorStaff).doctor || "").toLowerCase();
     case "status":
       return normalizeStatus(appointment.status);
     case "payment":
@@ -201,14 +302,16 @@ const getAppointmentSortValue = (appointment: Appointment, sortBy?: string): str
 const sortAppointments = (
   appointments: Appointment[],
   sortBy?: string,
-  sortDirection?: string
+  sortDirection?: string,
+  doctorStaff: DoctorIdentity[] = [],
+  patients: PatientIdentity[] = []
 ) => {
   const direction = sortDirection === "asc" ? "asc" : "desc";
   const column = sortBy || "date";
 
   return [...appointments].sort((a, b) => {
-    const aVal = getAppointmentSortValue(a, column);
-    const bVal = getAppointmentSortValue(b, column);
+    const aVal = getAppointmentSortValue(a, column, doctorStaff, patients);
+    const bVal = getAppointmentSortValue(b, column, doctorStaff, patients);
 
     if (aVal < bVal) return direction === "asc" ? -1 : 1;
     if (aVal > bVal) return direction === "asc" ? 1 : -1;
@@ -220,14 +323,14 @@ const cancelOverlappingPendingAppointments = async (
   appointments: Appointment[],
   newAppointment: Appointment,
   changedBy: string,
-  changedByName?: string
+  changedByName?: string,
+  doctorStaff: DoctorIdentity[] = []
 ) => {
   const normalizedNewStatus = normalizeStatus(newAppointment.status);
   if (isPatientCartStatus(normalizedNewStatus) || normalizedNewStatus === "cancelled") return;
 
   const newStart = timeToMinutes(newAppointment.time);
   const newEnd = newStart + normalizeAppointmentDuration(newAppointment.duration);
-  const newDoctorNorm = normalizeDoctorName(newAppointment.doctor || "");
 
   for (const apt of appointments) {
     if (
@@ -240,8 +343,13 @@ const cancelOverlappingPendingAppointments = async (
     }
 
     const isSamePatient = newAppointment.patientId && apt.patientId === newAppointment.patientId;
-    const isSameDoctor =
-      newDoctorNorm && normalizeDoctorName(apt.doctor || "") === newDoctorNorm;
+    const newDoctorIdentity = newAppointment.doctorId || newAppointment.doctor;
+    const existingDoctorIdentity = apt.doctorId || apt.doctor;
+    const isSameDoctor = Boolean(
+      newDoctorIdentity &&
+      existingDoctorIdentity &&
+      areSameDoctorIdentity(newDoctorIdentity, existingDoctorIdentity, doctorStaff)
+    );
     if (!isSamePatient && !isSameDoctor) continue;
 
     const aptStart = timeToMinutes(apt.time);
@@ -274,7 +382,7 @@ const cancelOverlappingPendingAppointments = async (
         CART_APPOINTMENT_STATUS,
         "cancelled",
       await resolveRecipients(apt),
-      appointmentData(apt)
+      appointmentData(withResolvedDoctor(apt as any, doctorStaff) as Appointment)
     );
   }
 };
@@ -285,6 +393,7 @@ export const addAppointment = async (
 ) => {
   try {
     const appointments = await readAppointmentsWithLifecycle();
+    const doctorStaff = await getActiveDoctorStaff();
     const appointmentInput: Appointment = req.body;
     const isSeeding = req.body.isSeeding === true;
 
@@ -308,7 +417,6 @@ export const addAppointment = async (
 
     if (
       !appointmentInput.patientId ||
-      !appointmentInput.patientName ||
       !appointmentInput.date ||
       !appointmentInput.time ||
       appointmentInput.type == null ||
@@ -316,11 +424,23 @@ export const addAppointment = async (
     ) {
       return res.status(400).json({
         success: false,
-        message: "Missing required fields: patientId, patientName, date, time, type",
+        message: "Missing required fields: patientId, date, time, type",
+      });
+    }
+
+    const patientRecord = await getActivePatientIdentity(appointmentInput.patientId);
+    if (!patientRecord && !isSeeding) {
+      return res.status(404).json({
+        success: false,
+        message: "Patient not found",
       });
     }
 
     appointmentInput.duration = normalizeAppointmentDuration(appointmentInput.duration);
+    appointmentInput.patientName = getPatientDisplayName(patientRecord, appointmentInput.patientName || appointmentInput.patientId);
+    const resolvedDoctor = resolveAppointmentDoctorName(appointmentInput, doctorStaff);
+    appointmentInput.doctor = resolvedDoctor.doctor;
+    appointmentInput.doctorId = resolvedDoctor.doctorId;
 
     if (
       !isSeeding &&
@@ -331,7 +451,8 @@ export const addAppointment = async (
         appointmentInput.duration,
         appointmentInput.doctor || "",
         undefined,
-        appointmentInput.patientId
+        appointmentInput.patientId,
+        doctorStaff
       )
     ) {
       return res.status(409).json({
@@ -355,12 +476,16 @@ export const addAppointment = async (
       (req as any).user?.username ||
       (changedBy === "admin" ? "Admin" : changedBy);
 
-    await cancelOverlappingPendingAppointments(appointments, newAppointment, changedBy, changedByName);
+    await cancelOverlappingPendingAppointments(appointments, newAppointment, changedBy, changedByName, doctorStaff);
 
     const created = toAppointment(await prisma.appointment.create({ data: createData as any }));
-    await notifyAppointmentChange(created, "created");
+    const createdForResponse = withResolvedDoctor(
+      withResolvedPatient(created as any, patientRecord ? [patientRecord] : []),
+      doctorStaff
+    ) as Appointment;
+    await notifyAppointmentChange(createdForResponse, "created");
 
-    const recipients = await resolveRecipients(created);
+    const recipients = await resolveRecipients(createdForResponse);
     if (created.paymentStatus && created.paymentStatus !== "unpaid") {
       await notifyStatusChange(
         created.id || "",
@@ -368,7 +493,7 @@ export const addAppointment = async (
         "unpaid",
         created.paymentStatus,
         recipients,
-        appointmentData(created)
+        appointmentData(createdForResponse)
       );
     }
 
@@ -398,7 +523,7 @@ export const addAppointment = async (
         created.id || "",
         created.totalPaid,
         recipients,
-        appointmentData(created),
+        appointmentData(createdForResponse),
         `initial_${created.id}`
       );
     }
@@ -406,7 +531,7 @@ export const addAppointment = async (
     res.status(201).json({
       success: true,
       message: "Appointment added successfully",
-      data: created,
+      data: createdForResponse,
     });
   } catch (error) {
     console.error("[APPOINTMENT CREATE] ERROR:", error);
@@ -424,6 +549,7 @@ export const getAppointments = async (
 ) => {
   try {
     const appointments = await readAppointmentsWithLifecycle();
+    const doctorStaff = await getActiveDoctorStaff();
     const {
       startDate,
       endDate,
@@ -462,13 +588,17 @@ export const getAppointments = async (
     if (startDate) filtered = filtered.filter((appointment) => appointment.date >= startDate);
     if (endDate) filtered = filtered.filter((appointment) => appointment.date <= endDate);
 
+    const searchablePatients = !isGlobal && search?.trim()
+      ? await getActivePatientIdentities(filtered.map((appointment) => appointment.patientId))
+      : [];
+
     if (search && search.trim()) {
       const q = search.trim().toLowerCase();
       filtered = filtered.filter(
         (appointment) =>
-          appointment.patientName.toLowerCase().includes(q) ||
+          getPatientSearchText(appointment.patientId || appointment.patientName, searchablePatients).includes(q) ||
           getAppointmentTypeName(appointment.type, appointment.customType).toLowerCase().includes(q) ||
-          String(appointment.doctor || "").toLowerCase().includes(q)
+          getDoctorSearchText(appointment.doctorId || appointment.doctor, doctorStaff).includes(q)
       );
     } else if (matchType === "or" && (doctor || patientId || parentId)) {
       let familyIds: string[] = [];
@@ -481,7 +611,7 @@ export const getAppointments = async (
       }
 
       filtered = filtered.filter((appointment) => {
-        if (doctor && doctor !== "all" && appointment.doctor === doctor) return true;
+        if (doctor && doctor !== "all" && areSameDoctorIdentity(appointment.doctorId || appointment.doctor, doctor, doctorStaff)) return true;
         if (!isGlobal && patientId && appointment.patientId === patientId) return true;
         if (!isGlobal && parentId && familyIds.includes(appointment.patientId)) return true;
         return false;
@@ -499,7 +629,9 @@ export const getAppointments = async (
       }
 
       if (doctor && doctor !== "all") {
-        filtered = filtered.filter((appointment) => appointment.doctor === doctor);
+        filtered = filtered.filter((appointment) =>
+          areSameDoctorIdentity(appointment.doctorId || appointment.doctor, doctor, doctorStaff)
+        );
       }
     }
 
@@ -540,7 +672,16 @@ export const getAppointments = async (
     }
 
     if (sortBy || view || shouldPaginate) {
-      filtered = sortAppointments(filtered, sortBy || (view === "requests" ? "booked" : "date"), sortDirection);
+      const sortPatients = !isGlobal && sortBy === "patient"
+        ? await getActivePatientIdentities(filtered.map((appointment) => appointment.patientId))
+        : [];
+      filtered = sortAppointments(
+        filtered,
+        sortBy || (view === "requests" ? "booked" : "date"),
+        sortDirection,
+        doctorStaff,
+        sortPatients
+      );
     }
 
     const total = filtered.length;
@@ -551,31 +692,20 @@ export const getAppointments = async (
     const patientIds = Array.from(
       new Set(pageData.map((appointment) => appointment.patientId).filter(Boolean))
     );
-    const patientProfiles = isGlobal || patientIds.length === 0
-      ? new Map<string, string | null>()
-      : new Map(
-          (
-            await prisma.patient.findMany({
-              where: { id: { in: patientIds }, deleted: false },
-              select: { id: true, profilePicture: true },
-            })
-          ).map((patient) => [patient.id, patient.profilePicture || null])
-        );
+    const pagePatients = isGlobal ? [] : await getActivePatientIdentities(patientIds);
 
     const response: ApiResponse<Appointment[]> = {
       success: true,
       message: "Appointments retrieved successfully",
-      data: pageData.map((appointment) => ({
-        ...appointment,
-        patientProfile: patientProfiles.get(appointment.patientId) || null,
-        patientProfilePicture: patientProfiles.get(appointment.patientId) || null,
-        profilePicture: patientProfiles.get(appointment.patientId) || null,
-        patient: {
-          id: appointment.patientId,
-          profilePicture: patientProfiles.get(appointment.patientId) || null,
-        },
-        status: normalizeStatus(appointment.status),
-      })),
+      data: pageData.map((appointment) =>
+        withResolvedDoctor(
+          withResolvedPatient({
+            ...appointment,
+            status: normalizeStatus(appointment.status),
+          }, pagePatients),
+          doctorStaff
+        ) as Appointment
+      ),
     };
 
     if (shouldPaginate) {
@@ -599,6 +729,7 @@ export const getPublicAppointmentAvailability = async (
 ) => {
   try {
     const appointments = await readAppointmentsWithLifecycle();
+    const doctorStaff = await getActiveDoctorStaff();
     const { startDate, endDate, doctor } = req.query as Record<string, string>;
 
     let filtered = appointments.filter((appointment) => !appointment.deleted);
@@ -606,9 +737,8 @@ export const getPublicAppointmentAvailability = async (
     if (startDate) filtered = filtered.filter((appointment) => appointment.date >= startDate);
     if (endDate) filtered = filtered.filter((appointment) => appointment.date <= endDate);
     if (doctor && doctor !== "all") {
-      const requestedDoctor = normalizeDoctorName(doctor);
       filtered = filtered.filter(
-        (appointment) => normalizeDoctorName(appointment.doctor || "") === requestedDoctor
+        (appointment) => areSameDoctorIdentity(appointment.doctorId || appointment.doctor, doctor, doctorStaff)
       );
     }
 
@@ -620,16 +750,18 @@ export const getPublicAppointmentAvailability = async (
     res.json({
       success: true,
       message: "Public appointment availability retrieved successfully",
-      data: filtered.map((appointment) => ({
-        ...appointment,
-        patientName: "Occupied",
-        patientId: "Occupied",
-        notes: "",
-        price: 0,
-        balance: 0,
-        totalPaid: 0,
-        status: normalizeStatus(appointment.status),
-      })),
+      data: filtered.map((appointment) =>
+        withResolvedDoctor({
+          ...appointment,
+          patientName: "Occupied",
+          patientId: "Occupied",
+          notes: "",
+          price: 0,
+          balance: 0,
+          totalPaid: 0,
+          status: normalizeStatus(appointment.status),
+        }, doctorStaff) as Appointment
+      ),
     });
   } catch (error) {
     console.error("[PUBLIC APPOINTMENT AVAILABILITY] Error fetching appointments:", error);
@@ -646,6 +778,7 @@ export const getAppointmentById = async (
   res: Response<ApiResponse<Appointment | null>>
 ) => {
   try {
+    const doctorStaff = await getActiveDoctorStaff();
     const appointment = toAppointment(
       await prisma.appointment.findUnique({ where: { id: req.params.id } })
     );
@@ -660,10 +793,18 @@ export const getAppointmentById = async (
       return res.status(404).json({ success: false, message: "Appointment not found" });
     }
 
+    const patientRecord = await getActivePatientIdentity(appointment.patientId);
+
     res.json({
       success: true,
       message: "Appointment retrieved successfully",
-      data: { ...appointment, status: normalizeStatus(appointment.status) },
+      data: withResolvedDoctor(
+        withResolvedPatient(
+          { ...appointment, status: normalizeStatus(appointment.status) },
+          patientRecord ? [patientRecord] : []
+        ),
+        doctorStaff
+      ) as Appointment,
     });
   } catch (error) {
     console.error("[APPOINTMENT GET_BY_ID] Error fetching appointment:", error);
@@ -681,9 +822,9 @@ export const updateAppointment = async (
 ) => {
   try {
     const appointments = await readAppointmentsWithLifecycle();
+    const doctorStaff = await getActiveDoctorStaff();
     const { id } = req.params;
     const updates: Partial<Appointment> = req.body;
-
     const oldAppointment = appointments.find((appointment) => appointment.id === id);
     if (!oldAppointment || (isStaffRole(req) && isPatientCartStatus(oldAppointment.status))) {
       return res.status(404).json({ success: false, message: "Appointment not found" });
@@ -713,6 +854,19 @@ export const updateAppointment = async (
       id: oldAppointment.id,
       updatedAt: new Date(),
     };
+    const patientRecord = await getActivePatientIdentity(updatedAppointment.patientId);
+    if (!patientRecord && Object.prototype.hasOwnProperty.call(updates, "patientId")) {
+      return res.status(404).json({ success: false, message: "Patient not found" });
+    }
+    if (patientRecord) {
+      updatedAppointment.patientName = getPatientDisplayName(
+        patientRecord,
+        updatedAppointment.patientName || updatedAppointment.patientId
+      );
+    }
+    const resolvedDoctor = resolveAppointmentDoctorName(updatedAppointment, doctorStaff);
+    updatedAppointment.doctor = resolvedDoctor.doctor;
+    updatedAppointment.doctorId = resolvedDoctor.doctorId;
     updatedAppointment.duration = normalizeAppointmentDuration(updatedAppointment.duration);
     if (updates.duration !== undefined) {
       updates.duration = updatedAppointment.duration;
@@ -732,7 +886,7 @@ export const updateAppointment = async (
       });
     }
 
-    if (updates.date || updates.time || updates.duration !== undefined || updates.doctor) {
+    if (updates.date || updates.time || updates.duration !== undefined || updates.doctor || updates.doctorId || updates.patientId) {
       if (
         hasConflict(
           appointments,
@@ -741,7 +895,8 @@ export const updateAppointment = async (
           updatedAppointment.duration,
           updatedAppointment.doctor || "",
           id,
-          updatedAppointment.patientId
+          updatedAppointment.patientId,
+          doctorStaff
         )
       ) {
         return res.status(409).json({
@@ -762,7 +917,7 @@ export const updateAppointment = async (
       (req as any).user?.name ||
       (req as any).user?.username ||
       (changedBy === "admin" ? "Admin" : changedBy);
-    await cancelOverlappingPendingAppointments(appointments, updatedAppointment, changedBy, changedByName);
+    await cancelOverlappingPendingAppointments(appointments, updatedAppointment, changedBy, changedByName, doctorStaff);
 
     const oldStatus = normalizeStatus(oldAppointment.status);
     const oldPaymentStatus = oldAppointment.paymentStatus || "unpaid";
@@ -798,19 +953,30 @@ export const updateAppointment = async (
         data: buildAppointmentUpdateData(updatedAppointment) as any,
       })
     );
+    const oldPatientRecord = oldAppointment.patientId === updatedAppointment.patientId
+      ? patientRecord
+      : await getActivePatientIdentity(oldAppointment.patientId);
+    const savedForNotifications = withResolvedDoctor(
+      withResolvedPatient(saved as any, patientRecord ? [patientRecord] : []),
+      doctorStaff
+    ) as Appointment;
+    const oldForNotifications = withResolvedDoctor(
+      withResolvedPatient(oldAppointment as any, oldPatientRecord ? [oldPatientRecord] : []),
+      doctorStaff
+    ) as Appointment;
 
-    const recipients = await resolveRecipients(saved);
+    const recipients = await resolveRecipients(savedForNotifications);
 
     if (paymentAmount > 0) {
-      await notifyPaymentReceived(saved.id || "", paymentAmount, recipients, appointmentData(saved, oldAppointment), `update_${saved.id}_${Date.now()}`);
+      await notifyPaymentReceived(saved.id || "", paymentAmount, recipients, appointmentData(savedForNotifications, oldForNotifications), `update_${saved.id}_${Date.now()}`);
     }
 
     if (updates.status && updates.status !== oldStatus) {
-      await notifyStatusChange(saved.id || "", "status", oldStatus, updates.status, recipients, appointmentData(saved, oldAppointment));
+      await notifyStatusChange(saved.id || "", "status", oldStatus, updates.status, recipients, appointmentData(savedForNotifications, oldForNotifications));
     }
 
     if (updates.paymentStatus && updates.paymentStatus !== oldPaymentStatus) {
-      await notifyStatusChange(saved.id || "", "payment", oldPaymentStatus, updates.paymentStatus, recipients, appointmentData(saved, oldAppointment));
+      await notifyStatusChange(saved.id || "", "payment", oldPaymentStatus, updates.paymentStatus, recipients, appointmentData(savedForNotifications, oldForNotifications));
     }
 
     const detailFieldsChanged =
@@ -827,13 +993,13 @@ export const updateAppointment = async (
       Object.prototype.hasOwnProperty.call(updates, "patientName");
 
     if (detailFieldsChanged && saved.id) {
-      await notifyAppointmentDetailsChange(saved.id, recipients, appointmentData(saved, oldAppointment));
+      await notifyAppointmentDetailsChange(saved.id, recipients, appointmentData(savedForNotifications, oldForNotifications));
     }
 
     res.json({
       success: true,
       message: "Appointment updated successfully",
-      data: saved,
+      data: savedForNotifications,
     });
   } catch (error) {
     console.error("[APPOINTMENT UPDATE] Error updating appointment:", error);
@@ -850,6 +1016,7 @@ export const deleteAppointment = async (
   res: Response<ApiResponse<null>>
 ) => {
   try {
+    const doctorStaff = await getActiveDoctorStaff();
     const appointment = toAppointment(
       await prisma.appointment.findUnique({ where: { id: req.params.id } })
     );
@@ -864,13 +1031,18 @@ export const deleteAppointment = async (
     });
 
     if (appointment.id) {
+      const patientRecord = await getActivePatientIdentity(appointment.patientId);
+      const notificationAppointment = withResolvedDoctor(
+        withResolvedPatient(appointment as any, patientRecord ? [patientRecord] : []),
+        doctorStaff
+      ) as Appointment;
       await notifyStatusChange(
         appointment.id,
         "status",
         normalizeStatus(appointment.status),
         "cancelled",
-        await resolveRecipients(appointment),
-        appointmentData(appointment)
+        await resolveRecipients(notificationAppointment),
+        appointmentData(notificationAppointment)
       );
     }
 
@@ -891,6 +1063,7 @@ export const bookPublicAppointment = async (
 ) => {
   try {
     const appointments = await readAppointmentsWithLifecycle();
+    const doctorStaff = await getActiveDoctorStaff();
     const {
       firstName,
       lastName,
@@ -972,8 +1145,11 @@ export const bookPublicAppointment = async (
 
     // Conflict check
     const appointmentDuration = normalizeAppointmentDuration(duration);
+    const resolvedDoctor = resolveAppointmentDoctorName({ doctor }, doctorStaff);
+    const appointmentDoctor = resolvedDoctor.doctor;
+    const patientDisplayName = getPatientDisplayName(patient, `${firstName} ${lastName}`);
 
-    if (hasConflict(appointments, date, time, appointmentDuration, doctor || "")) {
+    if (hasConflict(appointments, date, time, appointmentDuration, appointmentDoctor, undefined, patient.id, doctorStaff)) {
       return res.status(409).json({
         success: false,
         message: "The selected time is no longer available. Please choose another time.",
@@ -984,7 +1160,7 @@ export const bookPublicAppointment = async (
     const appointmentInput: Appointment = {
       id: "",
       patientId: patient.id,
-      patientName: `${patient.firstName || firstName} ${patient.lastName || lastName}`.trim(),
+      patientName: patientDisplayName,
       date,
       time,
       duration: appointmentDuration,
@@ -992,7 +1168,8 @@ export const bookPublicAppointment = async (
       customType: customType || "",
       price: clientPrice ?? getAppointmentPrice(type),
       discount: clientDiscount ?? 0,
-      doctor: doctor || "",
+      doctor: appointmentDoctor,
+      doctorId: resolvedDoctor.doctorId,
       notes: notes || "",
       serviceType: serviceType || "",
       status: requestedStatus,
@@ -1014,19 +1191,23 @@ export const bookPublicAppointment = async (
     // If the new appointment is not a cart item, cancel overlapping cart appointments.
     const normalizedNewStatus = normalizeStatus(newAppointment.status);
     if (!isPatientCartStatus(normalizedNewStatus) && normalizedNewStatus !== "cancelled") {
-      await cancelOverlappingPendingAppointments(appointments, newAppointment, "patient", `${firstName} ${lastName}`);
+      await cancelOverlappingPendingAppointments(appointments, newAppointment, "patient", patientDisplayName, doctorStaff);
     }
 
     const created = toAppointment(await prisma.appointment.create({ data: createData as any }));
+    const createdForResponse = withResolvedDoctor(
+      withResolvedPatient(created as any, [patient as PatientIdentity]),
+      doctorStaff
+    ) as Appointment;
 
-    await notifyAppointmentChange(created, "public_request");
+    await notifyAppointmentChange(createdForResponse, "public_request");
 
     await createAppointmentLog(
       created.id!,
       { status: "none", paymentStatus: "none", price: 0, balance: 0, totalPaid: 0 } as any,
       created,
       "patient",
-      `${firstName} ${lastName}`,
+      patientDisplayName,
       "update",
       created.totalPaid || 0,
       created.notes
@@ -1041,13 +1222,13 @@ export const bookPublicAppointment = async (
         "patient",
         created.price || 0,
         created.balance || 0,
-        `${firstName} ${lastName}`
+        patientDisplayName
       );
       await notifyPaymentReceived(
         created.id || "",
         created.totalPaid,
-        await resolveRecipients(created),
-        appointmentData(created),
+        await resolveRecipients(createdForResponse),
+        appointmentData(createdForResponse),
         `initial_${created.id}`
       );
     }
@@ -1056,7 +1237,7 @@ export const bookPublicAppointment = async (
     try {
       const token = createPublicAppointmentToken(created.id!);
       publicAccessTokens.set(token, created.id!);
-      const response = { ...created, publicToken: token, publicAccessToken: token } as (typeof created) & {
+      const response = { ...createdForResponse, publicToken: token, publicAccessToken: token } as (typeof created) & {
         publicToken: string;
         publicAccessToken: string;
       };
@@ -1070,7 +1251,7 @@ export const bookPublicAppointment = async (
       res.status(201).json({
         success: true,
         message: "Appointment requested successfully.",
-        data: created,
+        data: createdForResponse,
       });
     }
   } catch (error) {
@@ -1113,7 +1294,19 @@ export const fetchAppointmentLogs = async (req: Request<IdParams>, res: Response
 
     if (!isAllowed) return res.status(403).json({ success: false, message: "Not authorized to view logs" });
 
-    const logs = await getAppointmentLogs(id);
+    const doctorStaff = await getActiveDoctorStaff();
+    const rawLogs = await getAppointmentLogs(id);
+    const logPatientIds = new Set<string>([String(appointment.patientId || "")]);
+    for (const log of rawLogs) {
+      const previousPatientId = String((log.previousState as any)?.patientId || (log.previousState as any)?.patient?.id || "");
+      const nextPatientId = String((log.newState as any)?.patientId || (log.newState as any)?.patient?.id || "");
+      if (previousPatientId) logPatientIds.add(previousPatientId);
+      if (nextPatientId) logPatientIds.add(nextPatientId);
+    }
+    const patients = await getActivePatientIdentities(Array.from(logPatientIds));
+    const logs = rawLogs.map((log) =>
+      enrichAppointmentLogReferences(log, doctorStaff, patients)
+    );
     res.json({ success: true, message: "Appointment logs retrieved successfully", data: logs });
   } catch (error) {
     console.error("[APPOINTMENT LOGS GET] Error fetching logs:", error);
