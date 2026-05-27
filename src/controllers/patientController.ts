@@ -4,6 +4,7 @@ import { Patient, ApiResponse } from "../types/patient";
 import { createNotification, notifyAdmin } from "../utils/notifications";
 import { isPatientCartStatus, normalizeStatus } from "../constants/appointmentStatuses";
 import { prisma } from "../lib/prisma";
+import { getPatientDisplayName } from "../utils/patientIdentity";
 
 const patientUpdateFields = [
   "name",
@@ -622,6 +623,12 @@ export const updatePatient = async (
     const updatedPatient = await prisma.patient.update({
       where: { id: req.params.id as string },
       data: updateData as any,
+    });
+    const currentPatientName = getPatientDisplayName(updatedPatient);
+
+    await prisma.appointment.updateMany({
+      where: { patientId: updatedPatient.id, deleted: false },
+      data: { patientName: currentPatientName, updatedAt: new Date() },
     });
 
     res.json({

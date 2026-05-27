@@ -16,10 +16,73 @@ import {
   isPatientCartStatus,
   normalizeStatus,
 } from "../constants/appointmentStatuses";
+import { DoctorIdentity, withResolvedDoctor } from "../utils/doctorIdentity";
+import { PatientIdentity, withResolvedPatient } from "../utils/patientIdentity";
 
 const toPayment = (payment: unknown): Payment => payment as Payment;
 const toAppointment = (appointment: unknown): any => appointment as any;
 type IdParams = { id: string };
+
+const getActiveDoctorStaff = async (): Promise<DoctorIdentity[]> =>
+  prisma.staff.findMany({
+    where: { deleted: false },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      profilePicture: true,
+      role: true,
+      specialization: true,
+    },
+  }) as Promise<DoctorIdentity[]>;
+
+const patientIdentitySelect = {
+  id: true,
+  name: true,
+  firstName: true,
+  lastName: true,
+  username: true,
+  email: true,
+  phone: true,
+  profilePicture: true,
+} as const;
+
+const getActivePatientIdentities = async (patientIds: Array<string | null | undefined>): Promise<PatientIdentity[]> => {
+  const ids = Array.from(
+    new Set(patientIds.map((id) => String(id || "").trim()).filter(Boolean))
+  );
+  if (ids.length === 0) return [];
+
+  return prisma.patient.findMany({
+    where: { id: { in: ids }, deleted: false },
+    select: patientIdentitySelect,
+  }) as Promise<PatientIdentity[]>;
+};
+
+const withResolvedAppointmentReferences = (
+  appointment: any,
+  doctorStaff: DoctorIdentity[],
+  patients: PatientIdentity[]
+) => withResolvedDoctor(withResolvedPatient(appointment, patients), doctorStaff);
+
+const getPaymentSnapshotPatientIds = (payment: any): string[] => [
+  payment.patientId,
+  payment.appointmentSnapshot?.patientId,
+  payment.appointmentSnapshot?.patient?.id,
+].filter(Boolean).map(String);
+
+const hydratePaymentSnapshots = async (payments: any[]): Promise<Payment[]> => {
+  const snapshotPayments = payments.map(toPayment);
+  const doctorStaff = await getActiveDoctorStaff();
+  const patients = await getActivePatientIdentities(snapshotPayments.flatMap(getPaymentSnapshotPatientIds));
+
+  return snapshotPayments.map((payment: any) => ({
+    ...payment,
+    appointmentSnapshot: payment.appointmentSnapshot
+      ? withResolvedAppointmentReferences(payment.appointmentSnapshot, doctorStaff, patients)
+      : payment.appointmentSnapshot,
+  }));
+};
 
 const paymentStatusFor = (totalPaid: number, balance: number): string => {
   if (balance <= 0) return "paid";
@@ -28,6 +91,7 @@ const paymentStatusFor = (totalPaid: number, balance: number): string => {
 };
 
 const appointmentData = (appointment: any, previousState?: any) => ({
+  patientId: appointment.patientId,
   patientName: appointment.patientName,
   date: appointment.date,
   time: appointment.time,
@@ -68,6 +132,9 @@ export const createPayment = async (req: Request, res: Response<ApiResponse<any>
     if (!appointment || appointment.deleted) {
       return res.status(404).json({ success: false, message: "Appointment not found" });
     }
+    const doctorStaff = await getActiveDoctorStaff();
+    const patients = await getActivePatientIdentities([patientId || appointment.patientId]);
+    const appointmentForDisplay = withResolvedAppointmentReferences(appointment, doctorStaff, patients);
 
     if (transactionId) {
       const existing = await prisma.payment.findFirst({
@@ -121,16 +188,18 @@ export const createPayment = async (req: Request, res: Response<ApiResponse<any>
         appointment.date,
         appointment.time,
         appointment.duration || 60,
-        appointment.doctor || "",
-        appointment.id
+        appointment.doctorId || appointment.doctor || "",
+        appointment.id,
+        undefined,
+        doctorStaff
       );
 
       if (conflict) {
         await notifyAdmin(
           "Appointment Conflict Detected",
-          `${appointment.patientName} tried to confirm an appointment on ${appointment.date} at ${appointment.time}, but this slot is already taken.`,
+          `${appointmentForDisplay.patientName} tried to confirm an appointment on ${appointment.date} at ${appointment.time}, but this slot is already taken.`,
           "appointment",
-          { appointmentId: appointment.id, patientName: appointment.patientName }
+          { appointmentId: appointment.id, patientName: appointmentForDisplay.patientName }
         );
       } else if (!isPayAtClinic) {
         if (newPaymentStatus === "paid") newStatus = "scheduled";
@@ -182,6 +251,8 @@ export const createPayment = async (req: Request, res: Response<ApiResponse<any>
     }
 
     const recipients = await resolveRecipients(updatedAppointment);
+    const oldAppointmentForNotifications = withResolvedAppointmentReferences(oldAppointment, doctorStaff, patients);
+    const updatedAppointmentForNotifications = withResolvedAppointmentReferences(updatedAppointment, doctorStaff, patients);
     if (updatedAppointment.status !== oldStatus) {
       await notifyStatusChange(
         appointmentId,
@@ -189,7 +260,7 @@ export const createPayment = async (req: Request, res: Response<ApiResponse<any>
         oldStatus,
         updatedAppointment.status,
         recipients,
-        appointmentData(updatedAppointment, oldAppointment)
+        appointmentData(updatedAppointmentForNotifications, oldAppointmentForNotifications)
       );
     }
     if (updatedAppointment.paymentStatus !== oldPaymentStatus) {
@@ -199,7 +270,7 @@ export const createPayment = async (req: Request, res: Response<ApiResponse<any>
         oldPaymentStatus,
         updatedAppointment.paymentStatus,
         recipients,
-        appointmentData(updatedAppointment, oldAppointment)
+        appointmentData(updatedAppointmentForNotifications, oldAppointmentForNotifications)
       );
     }
     if (payAmount > 0) {
@@ -207,7 +278,7 @@ export const createPayment = async (req: Request, res: Response<ApiResponse<any>
         appointmentId,
         payAmount,
         recipients,
-        appointmentData(updatedAppointment, oldAppointment),
+        appointmentData(updatedAppointmentForNotifications, oldAppointmentForNotifications),
         newPayment.id
       );
     }
@@ -222,7 +293,7 @@ export const createPayment = async (req: Request, res: Response<ApiResponse<any>
       if (newPayment && (newPayment as any).id) {
         await prisma.payment.update({
           where: { id: (newPayment as any).id },
-          data: { appointmentSnapshot: updatedAppointment },
+          data: { appointmentSnapshot: updatedAppointmentForNotifications },
         });
         // refresh newPayment object to include appointmentSnapshot
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
@@ -241,7 +312,7 @@ export const createPayment = async (req: Request, res: Response<ApiResponse<any>
         amount: newPayment.amount,
         date: newPayment.date,
         description: `Payment ${newPayment.id} for appointment ${appointmentId}`,
-        appointmentSnapshot: updatedAppointment,
+        appointmentSnapshot: updatedAppointmentForNotifications,
         createdAt: new Date(),
         updatedAt: new Date(),
         deleted: false,
@@ -251,7 +322,7 @@ export const createPayment = async (req: Request, res: Response<ApiResponse<any>
     res.status(201).json({
       success: true,
       message: "Payment created",
-      data: { payment: newPayment, appointment: updatedAppointment },
+      data: { payment: newPayment, appointment: updatedAppointmentForNotifications },
     });
   } catch (error) {
     console.error("[CREATE PAYMENT] Error:", error);
@@ -272,7 +343,7 @@ export const getPaymentsByAppointment = async (
       where: { deleted: false, appointmentId: req.params.id },
       orderBy: { createdAt: "desc" },
     });
-    res.json({ success: true, data: payments.map(toPayment) });
+    res.json({ success: true, data: await hydratePaymentSnapshots(payments) });
   } catch (error) {
     console.error("[GET PAYMENTS] Error:", error);
     res.status(500).json({
@@ -292,7 +363,7 @@ export const getPaymentsByPatient = async (
       where: { deleted: false, patientId: req.params.id },
       orderBy: { createdAt: "desc" },
     });
-    res.json({ success: true, data: payments.map(toPayment) });
+    res.json({ success: true, data: await hydratePaymentSnapshots(payments) });
   } catch (error) {
     console.error("[GET PAYMENTS PATIENT] Error:", error);
     res.status(500).json({
@@ -334,6 +405,8 @@ export const updatePayment = async (req: Request<IdParams>, res: Response<ApiRes
         await prisma.appointment.findUnique({ where: { id: oldPayment.appointmentId } })
       );
       if (appointment) {
+        const doctorStaff = await getActiveDoctorStaff();
+        const patients = await getActivePatientIdentities([appointment.patientId, oldPayment.patientId]);
         const oldAppointment = { ...appointment };
         const totalPaid = Math.max(0, (appointment.totalPaid || 0) + amountDiff);
         const balance = (appointment.price || 0) - (appointment.discount || 0) - totalPaid;
@@ -374,8 +447,10 @@ export const updatePayment = async (req: Request<IdParams>, res: Response<ApiRes
         );
 
         const recipients = await resolveRecipients(savedAppointment);
+        const oldAppointmentForNotifications = withResolvedAppointmentReferences(oldAppointment, doctorStaff, patients);
+        const savedAppointmentForNotifications = withResolvedAppointmentReferences(savedAppointment, doctorStaff, patients);
         if (amountDiff > 0) {
-          await notifyPaymentReceived(oldPayment.appointmentId, amountDiff, recipients, appointmentData(savedAppointment, oldAppointment), id);
+          await notifyPaymentReceived(oldPayment.appointmentId, amountDiff, recipients, appointmentData(savedAppointmentForNotifications, oldAppointmentForNotifications), id);
         }
         if (savedAppointment.paymentStatus !== oldPaymentStatus) {
           await notifyStatusChange(
@@ -384,7 +459,7 @@ export const updatePayment = async (req: Request<IdParams>, res: Response<ApiRes
             oldPaymentStatus,
             savedAppointment.paymentStatus,
             recipients,
-            appointmentData(savedAppointment, oldAppointment)
+            appointmentData(savedAppointmentForNotifications, oldAppointmentForNotifications)
           );
         }
       }
@@ -428,6 +503,8 @@ export const deletePayment = async (req: Request<IdParams>, res: Response<ApiRes
       await prisma.appointment.findUnique({ where: { id: payment.appointmentId } })
     );
     if (appointment) {
+      const doctorStaff = await getActiveDoctorStaff();
+      const patients = await getActivePatientIdentities([appointment.patientId, payment.patientId]);
       const oldAppointment = { ...appointment };
       const totalPaid = Math.max(0, (appointment.totalPaid || 0) - payment.amount);
       const balance = (appointment.price || 0) - (appointment.discount || 0) - totalPaid;
@@ -468,13 +545,15 @@ export const deletePayment = async (req: Request<IdParams>, res: Response<ApiRes
       );
 
       if (savedAppointment.paymentStatus !== oldPaymentStatus) {
+        const oldAppointmentForNotifications = withResolvedAppointmentReferences(oldAppointment, doctorStaff, patients);
+        const savedAppointmentForNotifications = withResolvedAppointmentReferences(savedAppointment, doctorStaff, patients);
         await notifyStatusChange(
           payment.appointmentId,
           "payment",
           oldPaymentStatus,
           savedAppointment.paymentStatus,
           await resolveRecipients(savedAppointment),
-          appointmentData(savedAppointment, oldAppointment)
+          appointmentData(savedAppointmentForNotifications, oldAppointmentForNotifications)
         );
       }
     }

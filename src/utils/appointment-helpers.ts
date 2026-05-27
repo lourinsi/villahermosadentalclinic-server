@@ -1,6 +1,7 @@
 import { Appointment } from "../types/appointment";
 import { isPatientCartStatus } from "../constants/appointmentStatuses";
 import { normalizeAppointmentDuration } from "./appointment-durations";
+import { areSameDoctorIdentity, DoctorIdentity } from "./doctorIdentity";
 
 /**
  * Checks for appointment conflicts for a specific doctor
@@ -12,7 +13,8 @@ export const hasConflict = (
   newDuration: number,
   doctor: string,
   excludeId?: string,
-  patientId?: string
+  patientId?: string,
+  doctorStaff: DoctorIdentity[] = []
 ): boolean => {
   const timeToMinutes = (timeStr: string): number => {
     if (!timeStr) return 0;
@@ -40,7 +42,10 @@ export const hasConflict = (
     const isSamePatient = patientId && apt.patientId === patientId;
     
     // Check for doctor overlap (doctor cannot have two appointments at the same time)
-    const isSameDoctor = doctor && apt.doctor && doctor === apt.doctor;
+    const existingDoctor = apt.doctorId || apt.doctor;
+    const isSameDoctor = Boolean(
+      doctor && existingDoctor && areSameDoctorIdentity(doctor, existingDoctor, doctorStaff)
+    );
 
     // If it's neither the same patient nor the same doctor, no conflict
     if (!isSamePatient && !isSameDoctor) {

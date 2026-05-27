@@ -9,6 +9,10 @@ export interface Appointment {
   price?: number;
   discount?: number; // numeric amount discounted from price
   doctor: string;
+  doctorId?: string;
+  doctorName?: string;
+  doctorProfile?: string | null;
+  doctorProfilePicture?: string | null;
   duration?: number; // in minutes
   notes?: string;
   serviceType?: string;
@@ -19,12 +23,22 @@ export interface Appointment {
   paymentMethod?: string; // Payment method (e.g., 'cash', 'card', 'check')
   balance?: number;
   totalPaid?: number;
+  patientFirstName?: string | null;
+  patientLastName?: string | null;
+  patientEmail?: string | null;
+  patientPhone?: string | null;
   patientProfile?: string | null;
   patientProfilePicture?: string | null;
   profilePicture?: string | null;
   patient?: {
     id?: string;
+    name?: string | null;
+    firstName?: string | null;
+    lastName?: string | null;
+    email?: string | null;
+    phone?: string | null;
     profilePicture?: string | null;
+    profilePictureUrl?: string | null;
   };
   // Deprecated: transactions are now stored in payments collection. Keep for backward compat only.
   transactions?: {

@@ -85,6 +85,7 @@ model Appointment {
   price              Float?
   discount           Float?
   doctor             String?
+  doctorId           String?
   duration           Int?
   notes              String?
   serviceType        String?
@@ -102,6 +103,7 @@ model Appointment {
 
   @@index([patientId])
   @@index([doctor])
+  @@index([doctorId])
   @@index([date])
   @@index([status])
   @@index([paymentStatus])

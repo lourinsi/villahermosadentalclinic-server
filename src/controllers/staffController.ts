@@ -246,6 +246,33 @@ export const updateStaff = async (
       where: { id: req.params.id },
       data: buildStaffUpdateData(req.body) as any,
     });
+    const nameChanged =
+      Object.prototype.hasOwnProperty.call(req.body, "name") &&
+      String(req.body.name || "").trim() &&
+      String(req.body.name || "").trim() !== String(staff.name || "").trim();
+
+    if (nameChanged) {
+      const nextName = String(updatedStaff.name || "").trim();
+      await Promise.all([
+        (prisma.appointment as any).updateMany({
+          where: {
+            OR: [
+              { doctorId: staff.id },
+              { doctor: staff.name },
+            ],
+          },
+          data: { doctorId: staff.id, doctor: nextName, updatedAt: new Date() },
+        }),
+        prisma.staffFinancialRecord.updateMany({
+          where: { staffId: staff.id },
+          data: { staffName: nextName },
+        }),
+        prisma.staffAttendance.updateMany({
+          where: { staffId: staff.id },
+          data: { staffName: nextName },
+        }),
+      ]);
+    }
 
     res.json({
       success: true,

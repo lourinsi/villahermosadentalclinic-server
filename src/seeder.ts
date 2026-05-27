@@ -620,7 +620,13 @@ async function main() {
     },
   ];
 
-  const appointments = [
+  const normalizeSeedDoctorName = (name: string) =>
+    String(name || "").replace(/^Dr\.?\s+/i, "").toLowerCase().trim();
+  const seedDoctorIdsByName = new Map(
+    staff.map((member) => [normalizeSeedDoctorName(member.name), member.id])
+  );
+
+  let appointments = [
     makeAppointment({
       id: `${SEED_PREFIX}appt_test_completed`,
       patientId: `${SEED_PREFIX}patient_test`,
@@ -891,6 +897,10 @@ async function main() {
       duration: 120,
     }),
   ];
+  appointments = appointments.map((appointment) => ({
+    ...appointment,
+    doctorId: seedDoctorIdsByName.get(normalizeSeedDoctorName(appointment.doctor)) || null,
+  }));
 
   // Sprinkle: for realism, mark a few past appointments as `tbd` or with `overdue` payments.
   // Deterministic selection so seed is repeatable.
@@ -1322,7 +1332,7 @@ async function main() {
   console.log("");
   console.log("Useful demo logins:");
   console.log("Admin: admin / password");
-  console.log("Test Doctor (special shortcut): doctor / password  -> maps to Dr. Test Doctor");
+  console.log("Test Doctor shortcut: doctor / password -> maps to seed_staff_test_doctor");
   console.log("Doctor email login: maria.villahermosa@example.com / doctor123");
   console.log("Test Patient login: test@patient.com / villahermosa123");
 }

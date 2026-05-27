@@ -4,6 +4,8 @@ import { createAppointmentLog } from "./appointmentLogs";
 import { getAppointmentTypeName } from "./appointment-types";
 import { notifyStatusChange, resolveRecipients } from "./notifications";
 import { prisma } from "../lib/prisma";
+import { DoctorIdentity, withResolvedDoctor } from "./doctorIdentity";
+import { PatientIdentity, withResolvedPatient } from "./patientIdentity";
 
 const TBD_STATUS = "tbd";
 const FINAL_STATUSES = new Set(["cancelled", "completed"]);
@@ -104,10 +106,48 @@ export const markPastAppointmentsAsTbd = async (
       data: { status: TBD_STATUS, updatedAt: now },
     });
 
+    const [patientRecord, doctorStaff] = await Promise.all([
+      appointment.patientId
+        ? prisma.patient.findFirst({
+            where: { id: appointment.patientId, deleted: false },
+            select: {
+              id: true,
+              name: true,
+              firstName: true,
+              lastName: true,
+              username: true,
+              email: true,
+              phone: true,
+              profilePicture: true,
+            },
+          }) as Promise<PatientIdentity | null>
+        : Promise.resolve(null),
+      prisma.staff.findMany({
+        where: { deleted: false },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          profilePicture: true,
+          role: true,
+          specialization: true,
+        },
+      }) as Promise<DoctorIdentity[]>,
+    ]);
+    const patientRecords = patientRecord ? [patientRecord] : [];
+    const previousStateForLog = withResolvedDoctor(
+      withResolvedPatient(previousState as any, patientRecords),
+      doctorStaff
+    ) as Appointment;
+    const appointmentForLog = withResolvedDoctor(
+      withResolvedPatient({ ...appointment } as any, patientRecords),
+      doctorStaff
+    ) as Appointment;
+
     await createAppointmentLog(
       appointment.id,
-      previousState,
-      { ...appointment },
+      previousStateForLog,
+      appointmentForLog,
       "system",
       "System",
       "status_change",
@@ -118,10 +158,10 @@ export const markPastAppointmentsAsTbd = async (
     await notifyStatusChange(
       appointment.id,
       "status",
-      normalizeStatus(previousState.status),
+      normalizeStatus(previousStateForLog.status),
       TBD_STATUS,
-      await resolveRecipients(appointment),
-      appointmentNotificationData(appointment, previousState)
+      await resolveRecipients(appointmentForLog),
+      appointmentNotificationData(appointmentForLog, previousStateForLog)
     );
   }
 
