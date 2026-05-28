@@ -18,26 +18,49 @@ export const getNotifications = async (
   res: Response<ApiResponse<Notification[]>>
 ) => {
   try {
-    const { userId, type, includeDeleted, limit } = req.query as Record<string, string>;
+    const { userId, type, includeDeleted, limit, offset } = req.query as Record<string, string>;
     const shouldIncludeDeleted =
       includeDeleted === "true" || includeDeleted === "True" || includeDeleted === "1";
     const take = limit
       ? Math.max(1, Math.min(100, parseInt(limit, 10) || 20))
       : undefined;
+    const skip = Math.max(0, parseInt(offset || "0", 10) || 0);
 
-    const notifications = await prisma.notification.findMany({
-      where: {
-        ...(shouldIncludeDeleted ? {} : { deleted: false }),
-        ...(userId ? { userId } : {}),
-        ...(type ? { type } : {}),
-      },
-      orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
-      ...(take ? { take } : {}),
-    });
+    const where = {
+      ...(shouldIncludeDeleted ? {} : { deleted: false }),
+      ...(userId ? { userId } : {}),
+      ...(type ? { type } : {}),
+    };
+
+    const [notifications, total, unreadCount] = await Promise.all([
+      prisma.notification.findMany({
+        where,
+        orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
+        ...(take ? { take, skip } : {}),
+      }),
+      prisma.notification.count({ where }),
+      prisma.notification.count({
+        where: {
+          ...(userId ? { userId } : {}),
+          ...(type ? { type } : {}),
+          deleted: false,
+          isRead: false,
+        },
+      }),
+    ]);
+
+    const returnedCount = notifications.length;
 
     res.json({
       success: true,
       message: "Notifications retrieved successfully",
+      meta: {
+        limit: take ?? null,
+        offset: skip,
+        total,
+        unreadCount,
+        hasMore: Boolean(take && skip + returnedCount < total),
+      },
       data: notifications.map(toNotification),
     });
   } catch (error) {
