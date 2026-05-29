@@ -40,10 +40,10 @@ export const PAYMENT_STATUSES: PaymentStatusOption[] = [
   },
   {
     key: 5,
-    value: "pay-at-clinic",
-    label: "Pay at Clinic",
-    description: "Payment to be made at clinic",
-    ...getDefaultPaymentStatusColors("pay-at-clinic")
+    value: "over-paid",
+    label: "Over-paid",
+    description: "Payment exceeds appointment total",
+    ...getDefaultPaymentStatusColors("over-paid")
   },
 ];
 
