@@ -3,7 +3,6 @@ export type PaymentStatus =
   | "unpaid"
   | "half-paid"
   | "overdue"
-  | "pay-at-clinic"
   | "over-paid"
   | (string & {});
 

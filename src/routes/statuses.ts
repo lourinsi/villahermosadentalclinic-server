@@ -14,6 +14,7 @@ import {
 import { prisma } from "../lib/prisma";
 
 const router = Router();
+const HIDDEN_PAYMENT_STATUS_VALUES = new Set(["pay-at-clinic"]);
 
 router.get("/appointments", async (req: Request, res: Response) => {
   try {
@@ -61,12 +62,13 @@ router.get("/appointments", async (req: Request, res: Response) => {
 router.get("/payments", async (req: Request, res: Response) => {
   try {
     const config = await prisma.statusConfig.findUnique({ where: { key: "payment" } });
-    const rawStatuses = Array.isArray(config?.value) ? config.value : PAYMENT_STATUSES;
+    const configuredStatuses = Array.isArray(config?.value) ? config.value : [];
+    const rawStatuses = [...configuredStatuses, ...PAYMENT_STATUSES];
     const paymentStatusesByValue = new Map<string, any>();
 
     for (const status of rawStatuses as any[]) {
       const value = normalizePaymentStatus(status.value);
-      if (!value || paymentStatusesByValue.has(value)) continue;
+      if (!value || HIDDEN_PAYMENT_STATUS_VALUES.has(value) || paymentStatusesByValue.has(value)) continue;
 
       paymentStatusesByValue.set(
         value,
